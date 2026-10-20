@@ -1,0 +1,7 @@
+name: 'Webform Report Grid'
+type: module
+description: 'Generic drag-and-drop grid reports over submissions of any webform.'
+package: Custom
+core_version_requirement: ^10 || ^11
+dependencies:
+  - drupal:webform

@@ -1,0 +1,11 @@
+entity.webform_report.collection:
+  title: 'Webform grid reports'
+  parent: system.admin_structure
+  description: 'Drag-and-drop grid reports over webform submissions.'
+  route_name: entity.webform_report.collection
+webform_report_grid.settings:
+  title: 'Display settings'
+  parent: entity.webform_report.collection
+  description: 'Font size, card spacing, column width and auto-sizing.'
+  route_name: webform_report_grid.settings
+  weight: 10

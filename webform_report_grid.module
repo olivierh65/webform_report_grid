@@ -1,0 +1,43 @@
+<?php
+
+/**
+ * @file
+ * Webform Report Grid: generic drag-and-drop grid reports over webform data.
+ */
+
+declare(strict_types=1);
+
+/**
+ * Implements hook_theme().
+ */
+function webform_report_grid_theme($existing, $type, $theme, $path): array {
+  return [
+    'webform_report_grid_view' => [
+      'variables' => [
+        'title' => '',
+        'report_id' => '',
+        'read_only' => FALSE,
+      ],
+      'template' => 'webform-report-grid-view',
+    ],
+    'webform_report_grid_switch' => [
+      'variables' => [
+        'webforms' => [],
+        'reports' => [],
+        'current_webform' => '',
+        'current_report' => '',
+      ],
+      'template' => 'webform-report-grid-switch',
+    ],
+  ];
+}
+
+/**
+ * Implements hook_help().
+ */
+function webform_report_grid_help($route_name, $route_match) {
+  if ($route_name === 'entity.webform_report.collection') {
+    return ['#markup' => t('Grid reports aggregate submissions of any webform. Pick a webform, drop its fields on the grid and choose a summary (sum, count, average, breakdown...).')];
+  }
+  return NULL;
+}

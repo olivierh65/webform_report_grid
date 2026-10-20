@@ -1,0 +1,139 @@
+entity.webform_report.collection:
+  path: '/admin/structure/webform-report'
+  defaults:
+    _entity_list: 'webform_report'
+    _title: 'Webform grid reports'
+  requirements:
+    _permission: 'administer webform reports'
+
+webform_report_grid.settings:
+  path: '/admin/structure/webform-report/settings'
+  defaults:
+    _form: '\Drupal\webform_report_grid\Form\SettingsForm'
+    _title: 'Grid report display settings'
+  requirements:
+    _permission: 'administer webform reports'
+
+entity.webform_report.add_form:
+  path: '/admin/structure/webform-report/add'
+  defaults:
+    _entity_form: 'webform_report.add'
+    _title: 'Add grid report'
+  requirements:
+    _permission: 'administer webform reports'
+
+entity.webform_report.edit_form:
+  path: '/admin/structure/webform-report/{webform_report}/edit'
+  defaults:
+    _entity_form: 'webform_report.edit'
+    _title: 'Edit grid report'
+  requirements:
+    _permission: 'administer webform reports'
+
+entity.webform_report.delete_form:
+  path: '/admin/structure/webform-report/{webform_report}/delete'
+  defaults:
+    _entity_form: 'webform_report.delete'
+    _title: 'Delete grid report'
+  requirements:
+    _permission: 'administer webform reports'
+
+webform_report_grid.by_webform:
+  path: '/admin/structure/webform/manage/{webform}/reports'
+  defaults:
+    _controller: '\Drupal\webform_report_grid\Controller\ReportController::byWebform'
+    _title: 'Rapports'
+  requirements:
+    _permission: 'view webform report'
+  options:
+    _admin_route: TRUE
+
+webform_report_grid.build:
+  path: '/webform-report/{webform_report}/build'
+  defaults:
+    _controller: '\Drupal\webform_report_grid\Controller\ReportController::build'
+    _title_callback: '\Drupal\webform_report_grid\Controller\ReportController::title'
+  requirements:
+    _permission: 'administer webform reports'
+
+entity.webform_report.canonical:
+  path: '/webform-report/{webform_report}/front'
+  defaults:
+    _controller: '\Drupal\webform_report_grid\Controller\ReportController::viewFront'
+    _title_callback: '\Drupal\webform_report_grid\Controller\ReportController::title'
+  requirements:
+    _permission: 'view webform report'
+
+entity.webform_report.build_form:
+  path: '/webform-report/{webform_report}/build'
+  defaults:
+    _controller: '\Drupal\webform_report_grid\Controller\ReportController::build'
+    _title_callback: '\Drupal\webform_report_grid\Controller\ReportController::title'
+  requirements:
+    _permission: 'administer webform reports'
+
+webform_report_grid.view:
+  path: '/webform-report/{webform_report}'
+  defaults:
+    _controller: '\Drupal\webform_report_grid\Controller\ReportController::view'
+    _title_callback: '\Drupal\webform_report_grid\Controller\ReportController::title'
+  requirements:
+    _permission: 'view webform report'
+
+webform_report_grid.data:
+  path: '/webform-report/{webform_report}/data'
+  defaults:
+    _controller: '\Drupal\webform_report_grid\Controller\ReportController::data'
+  requirements:
+    _permission: 'view webform report'
+
+webform_report_grid.fields:
+  path: '/webform-report/{webform_report}/fields'
+  defaults:
+    _controller: '\Drupal\webform_report_grid\Controller\ReportController::fields'
+  requirements:
+    _permission: 'view webform report'
+
+webform_report_grid.person:
+  path: '/webform-report/{webform_report}/person/{index}'
+  defaults:
+    _controller: '\Drupal\webform_report_grid\Controller\ReportController::person'
+  requirements:
+    _permission: 'view webform report'
+
+webform_report_grid.save:
+  path: '/webform-report/{webform_report}/save'
+  defaults:
+    _controller: '\Drupal\webform_report_grid\Controller\ReportController::saveCards'
+  methods: [POST]
+  requirements:
+    _permission: 'administer webform reports'
+
+webform_report_grid.switch:
+  path: '/webform-report/switch'
+  defaults:
+    _controller: '\Drupal\webform_report_grid\Controller\ReportController::switchContext'
+  requirements:
+    _permission: 'view webform report'
+
+webform_report_grid.export_csv:
+  path: '/webform-report/{webform_report}/export.csv'
+  defaults:
+    _controller: '\Drupal\webform_report_grid\Controller\ExportController::csv'
+  requirements:
+    _permission: 'view webform report'
+
+webform_report_grid.export_xlsx:
+  path: '/webform-report/{webform_report}/export.xlsx'
+  defaults:
+    _controller: '\Drupal\webform_report_grid\Controller\ExportController::xlsx'
+  requirements:
+    _permission: 'view webform report'
+
+webform_report_grid.view_front:
+  path: '/webform-report/{webform_report}/front'
+  defaults:
+    _controller: '\Drupal\webform_report_grid\Controller\ReportController::viewFront'
+    _title_callback: '\Drupal\webform_report_grid\Controller\ReportController::title'
+  requirements:
+    _permission: 'view webform report'

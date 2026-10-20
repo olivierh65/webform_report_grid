@@ -1,0 +1,120 @@
+webform_report_grid.settings:
+  type: config_object
+  label: 'Webform report grid display settings'
+  mapping:
+    font_size:
+      type: float
+      label: 'Base font size (rem)'
+    card_gap:
+      type: integer
+      label: 'Gap between cards (px)'
+    column_width:
+      type: integer
+      label: 'Grid column width (px)'
+    columns:
+      type: integer
+      label: 'Number of grid columns'
+    auto_size_cards:
+      type: boolean
+      label: 'Auto-size cards to fit content'
+
+webform_report.webform_report.*:
+  type: config_entity
+  label: 'Webform grid report'
+  mapping:
+    id:
+      type: string
+      label: 'ID'
+    label:
+      type: label
+      label: 'Label'
+    uuid:
+      type: string
+    webform_id:
+      type: string
+      label: 'Target webform ID'
+    filter_field:
+      type: string
+      label: 'Global filter field'
+    cards:
+      type: sequence
+      label: 'Grid cards'
+      sequence:
+        type: mapping
+        mapping:
+          type:
+            type: string
+            label: 'Card type (card|folder)'
+          field:
+            type: string
+          source_fields:
+            type: sequence
+            sequence:
+              type: string
+          mode:
+            type: string
+          display_mode:
+            type: string
+          agg:
+            type: string
+          w:
+            type: integer
+          px_w:
+            type: integer
+            label: 'Saved pixel width'
+          h:
+            type: integer
+          min_h:
+            type: integer
+          max_h:
+            type: integer
+          label:
+            type: string
+          group_label:
+            type: string
+          summary_label:
+            type: string
+          value_filter:
+            type: sequence
+            sequence:
+              type: string
+          collapsed:
+            type: boolean
+            label: 'Folder collapsed by default'
+          children:
+            type: sequence
+            label: 'Folder children cards'
+            sequence:
+              type: mapping
+              mapping:
+                type:
+                  type: string
+                field:
+                  type: string
+                source_fields:
+                  type: sequence
+                  sequence:
+                    type: string
+                mode:
+                  type: string
+                display_mode:
+                  type: string
+                agg:
+                  type: string
+                w:
+                  type: integer
+                px_w:
+                  type: integer
+                  label: 'Saved pixel width'
+                h:
+                  type: integer
+                label:
+                  type: string
+                group_label:
+                  type: string
+                summary_label:
+                  type: string
+                value_filter:
+                  type: sequence
+                  sequence:
+                    type: string

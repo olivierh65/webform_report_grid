@@ -1,0 +1,24 @@
+<form class="wrg-switch" method="get" action="/webform-report/switch">
+  <div class="wrg-switch-row">
+    <label>Webform
+      <select name="webform" data-wrg-switch-webform>
+        <option value="">— Choose a webform —</option>
+        {% for id, label in webforms %}
+          <option value="{{ id }}" {{ id == current_webform ? 'selected' : '' }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Report
+      <select name="report" data-wrg-switch-report {{ reports is empty ? 'disabled' : '' }}>
+        <option value="">— Choose a report —</option>
+        {% for id, label in reports %}
+          <option value="{{ id }}" {{ id == current_report ? 'selected' : '' }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button class="button button--primary" type="submit">Open</button>
+  </div>
+  {% if current_webform and reports is empty %}
+    <p class="wrg-hint">No report for this webform yet. <a href="/admin/structure/webform-report/add">Create one</a>.</p>
+  {% endif %}
+</form>

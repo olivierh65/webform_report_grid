@@ -1,0 +1,4 @@
+webform_report_grid.by_webform:
+  title: 'Rapports'
+  route_name: webform_report_grid.by_webform
+  base_route: entity.webform.edit_form

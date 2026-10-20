@@ -1,0 +1,5 @@
+entity.webform_report.add_form:
+  route_name: entity.webform_report.add_form
+  title: 'Add grid report'
+  appears_on:
+    - entity.webform_report.collection

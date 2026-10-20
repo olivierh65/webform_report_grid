@@ -1,0 +1,5 @@
+font_size: 0.95
+card_gap: 16
+column_width: 280
+columns: 12
+auto_size_cards: true

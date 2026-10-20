@@ -1,0 +1,30 @@
+<div class="wrg{{ read_only ? ' wrg-read-only' : '' }}" data-report="{{ report_id }}">
+  {% if not read_only %}
+  <div class="wrg-toolbar" data-wrg-toolbar>
+    <a class="button button--small" href="/webform-report/switch?report={{ report_id }}">⇄ Webform / report</a>
+    <button class="button button--small" data-wrg-add-folder type="button">📁 Nouveau dossier</button>
+    <button class="button button--primary button--small" data-wrg-save type="button">💾 Save layout</button>
+    <span class="wrg-save-state" data-wrg-save-state aria-live="polite"></span>
+  </div>
+  <div class="wrg-filters" data-wrg-filters role="group" aria-label="Filter"></div>
+  {% endif %}
+  <div class="wrg-layout">
+    {% if not read_only %}
+    <aside class="wrg-palette">
+      <input type="search" data-wrg-search placeholder="Search a field…" aria-label="Search a field">
+      <div data-wrg-tree></div>
+    </aside>
+    {% endif %}
+    <section class="wrg-main">
+      <div class="wrg-export">
+        <a class="button" data-wrg-export="csv">Export CSV</a>
+        <a class="button" data-wrg-export="xlsx">Export Excel / LibreOffice</a>
+      </div>
+      {% if not read_only %}
+      <p class="wrg-hint">Drag a field into the grid. Drop a field onto a dossier to file it inside. Drag cards to reorder, change the summary with the menu.</p>
+      {% endif %}
+      <div class="wrg-grid" data-wrg-grid></div>
+    </section>
+  </div>
+  <dialog data-wrg-dialog></dialog>
+</div>

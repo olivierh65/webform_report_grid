@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit bootstrap="../../../../vendor/autoload.php"
+         colors="true"
+         convertErrorsToExceptions="true"
+         convertNoticesToExceptions="true"
+         convertWarningsToExceptions="true"
+         stopOnFailure="false">
+  <testsuites>
+    <testsuite name="webform_report_grid">
+      <directory>tests</directory>
+    </testsuite>
+  </testsuites>
+  <filter>
+    <whitelist>
+      <directory>src</directory>
+    </whitelist>
+  </filter>
+  <php>
+    <ini name="memory_limit" value="256M"/>
+    <env name="SIMPLETEST_BASE_URL" value="http://localhost"/>
+    <env name="BROWSERTEST_OUTPUT_DIRECTORY" value="/tmp/drupal_test_output"/>
+  </php>
+</phpunit>

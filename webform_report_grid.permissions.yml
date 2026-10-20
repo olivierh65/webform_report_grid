@@ -1,0 +1,10 @@
+view webform report:
+  title: 'View webform grid reports'
+  description: 'View grid reports built on webform submissions.'
+view webform report contacts:
+  title: 'View contact details in webform grid reports'
+  description: 'See full names, phone numbers and email addresses in report cards, dialogs and exports. Without this permission names are shortened and contacts hidden.'
+administer webform reports:
+  title: 'Administer webform grid reports'
+  description: 'Create, edit and delete webform grid reports.'
+  restrict access: true

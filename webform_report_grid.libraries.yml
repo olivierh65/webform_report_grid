@@ -1,0 +1,13 @@
+viewer:
+  version: 1.x
+  js:
+    js/lib/gridstack-h5.js: { minified: true, weight: -5.8 }
+    js/report-grid.js: {}
+  css:
+    theme:
+      css/lib/gridstack.min.css: { weight: -5.8 }
+      css/report-grid.css: {}
+  dependencies:
+    - core/drupal
+    - core/drupalSettings
+    - core/once

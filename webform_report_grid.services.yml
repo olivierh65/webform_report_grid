@@ -1,0 +1,10 @@
+services:
+  webform_report_grid.field_discovery:
+    class: Drupal\webform_report_grid\Service\ReportFieldDiscovery
+    arguments: ['@entity_type.manager', '@token']
+  webform_report_grid.data:
+    class: Drupal\webform_report_grid\Service\ReportDataService
+    arguments: ['@entity_type.manager', '@current_user', '@webform_report_grid.field_discovery']
+  webform_report_grid.export:
+    class: Drupal\webform_report_grid\Service\ReportExportService
+    arguments: ['@webform_report_grid.data']
