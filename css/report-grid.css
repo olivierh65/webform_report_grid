@@ -175,6 +175,12 @@
 .wrg-card.wrg-collapsed .wrg-folder-children{display:none}
 .wrg-card.wrg-drop-hover-folder{box-shadow:0 0 0 2px #6a4fb3}
 .wrg-card.wrg-drop-hover-folder .wrg-folder-children{border-color:#6a4fb3;background:#f4f0fd}
+/* Child wrapper + up/down order controls (edit mode only). */
+.wrg-folder-kid{position:relative}
+.wrg-kid-order{position:absolute;top:4px;right:4px;z-index:2;display:flex;gap:2px}
+.wrg-kid-order button{border:1px solid var(--wrg-ln);background:var(--wrg-bg);color:var(--wrg-tx);border-radius:4px;font-size:11px;line-height:1;padding:3px 6px;cursor:pointer;opacity:.55}
+.wrg-kid-order button:hover:not(:disabled){opacity:1;border-color:#6a4fb3}
+.wrg-kid-order button:disabled{opacity:.2;cursor:default}
 /* In edit mode the folder itself is draggable via its header. */
 .wrg-folder-head{cursor:grab}
 /* Toolbar: add-folder button. */

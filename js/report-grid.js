@@ -497,7 +497,18 @@
       const children = Array.isArray(c.children) ? c.children : [];
       const collapsed = !!c.collapsed;
       const count = children.length;
-      const kids = children.map((kid, j) => renderCard(kid, `${path}/${j}`, rows, readOnly)).join('');
+      const kids = children.map((kid, j) => {
+        const kidHtml = renderCard(kid, `${path}/${j}`, rows, readOnly);
+        if (readOnly || isFolder(kid)) return kidHtml;
+        // Wrap data-card children with up/down order controls.
+        const isFirst = j === 0;
+        const isLast = j === count - 1;
+        return `<div class="wrg-folder-kid" data-kid="${path}/${j}">`
+          + `<div class="wrg-kid-order" role="group" aria-label="Ordre">`
+          + `<button data-move-up="${path}/${j}" title="Monter" aria-label="Monter" ${isFirst ? 'disabled' : ''}>▲</button>`
+          + `<button data-move-down="${path}/${j}" title="Descendre" aria-label="Descendre" ${isLast ? 'disabled' : ''}>▼</button>`
+          + `</div>${kidHtml}</div>`;
+      }).join('');
       const emptyHtml = count === 0
         ? `<div class="wrg-folder-empty">${readOnly ? 'Dossier vide.' : 'Glissez des champs ici pour remplir ce dossier.'}</div>`
         : '';
@@ -991,6 +1002,24 @@
             c.w = next;
             updateCard(p);
             markDirty();
+          }
+        }
+        else if (e.target.dataset.moveUp !== undefined || e.target.dataset.moveDown !== undefined) {
+          // Reorder a card inside its folder: swap with previous/next sibling.
+          const p = String(e.target.dataset.moveUp ?? e.target.dataset.moveDown);
+          const dir = e.target.dataset.moveUp !== undefined ? -1 : 1;
+          const parts = p.split('/').map(Number);
+          if (parts.length === 2) {
+            const [fi, ci] = parts;
+            const folder = state.cards[fi];
+            if (folder && isFolder(folder) && Array.isArray(folder.children)) {
+              const ni = ci + dir;
+              if (ni >= 0 && ni < folder.children.length) {
+                [folder.children[ci], folder.children[ni]] = [folder.children[ni], folder.children[ci]];
+                updateCard(String(fi));
+                markDirty();
+              }
+            }
           }
         }
       });
