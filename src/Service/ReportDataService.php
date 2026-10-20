@@ -119,30 +119,23 @@ class ReportDataService {
 
   /**
    * Flattens one submission: display name + contact + field values.
+   *
+   * Composite elements (identity_login_composite, webform_name,
+   * webform_address, address, etc.) may come as nested arrays
+   * (['identite' => ['first_name' => ...]]) or as flattened keys
+   * (['identite__first_name' => ...]), depending on how the submission
+   * was stored. Both formats are normalized to flattened keys.
    */
   protected function flatten(array $data, array $contact_keys = []): array {
-    // Normalize: composite elements may come as nested arrays
-    // (['identite' => ['first_name' => ..., 'last_name' => ...]])
-    // or as flattened keys (['identite__first_name' => ...]),
-    // depending on how the submission was stored.
-    // Expand nested composites to flattened keys so both formats work.
-    foreach ($data as $key => $value) {
-      if (is_array($value) && !array_is_list($value)) {
-        foreach ($value as $sub_key => $sub_value) {
-          if (is_scalar($sub_value) || $sub_value === NULL) {
-            $data[$key . '__' . $sub_key] ??= $sub_value;
-          }
-        }
-      }
-    }
-    $first = trim((string) ($data[$contact_keys['first_name'] ?? ''] ?? $this->findBySuffix($data, ['__first_name', '__first']) ?? $data['first_name'] ?? $data['identite']['first_name'] ?? ''));
-    $last = trim((string) ($data[$contact_keys['last_name'] ?? ''] ?? $this->findBySuffix($data, ['__last_name', '__last']) ?? $data['last_name'] ?? $data['identite']['last_name'] ?? ''));
+    $data = $this->normalizeComposites($data);
+    $first = trim((string) ($data[$contact_keys['first_name'] ?? ''] ?? $this->findBySuffix($data, ['__first_name', '__first']) ?? $data['first_name'] ?? ''));
+    $last = trim((string) ($data[$contact_keys['last_name'] ?? ''] ?? $this->findBySuffix($data, ['__last_name', '__last']) ?? $data['last_name'] ?? ''));
     $full = trim($first . ' ' . $last) ?: 'Anonymous';
     // Short display name by default (privacy): "Julien D.".
     $short = $first . ($last !== '' ? ' ' . mb_substr($last, 0, 1) . '.' : '');
     $contacts = [
-      'phone' => (string) ($data[$contact_keys['phone'] ?? ''] ?? $this->findBySuffix($data, ['__phone', '__tel']) ?? $data['phone'] ?? $data['identite']['phone'] ?? ''),
-      'email' => (string) ($data[$contact_keys['email'] ?? ''] ?? $this->findBySuffix($data, ['__email', '__e_mail']) ?? $data['email'] ?? $data['identite']['email'] ?? ''),
+      'phone' => (string) ($data[$contact_keys['phone'] ?? ''] ?? $this->findBySuffix($data, ['__phone', '__tel']) ?? $data['phone'] ?? ''),
+      'email' => (string) ($data[$contact_keys['email'] ?? ''] ?? $this->findBySuffix($data, ['__email', '__e_mail']) ?? $data['email'] ?? ''),
     ];
     $fields = [];
     foreach ($data as $key => $value) {
@@ -160,6 +153,59 @@ class ReportDataService {
       $fields[$key] = $value;
     }
     return ['n' => $short ?: $full, 'full' => $full, 'contacts' => $contacts, 'f' => $fields];
+  }
+
+  /**
+   * Normalizes composite values to flattened "parent__subkey" keys.
+   *
+   * Handles any composite element generically (identity_login_composite,
+   * webform_name, webform_address, address, webform_email, webform_phone,
+   * custom composites...), whatever the parent key is:
+   *   ['coordonnees' => ['first' => 'Julien']]
+   * becomes ['coordonnees' => [...], 'coordonnees__first' => 'Julien'].
+   *
+   * - Nested assoc arrays are expanded (recursively, for composites
+   *   containing composites).
+   * - Multiple-value composites (list of arrays) are kept as-is: the
+   *   checkbox-style handling in flatten() already covers them.
+   * - Existing flattened keys always win (??=): raw submission data
+   *   takes precedence over derived values.
+   */
+  protected function normalizeComposites(array $data): array {
+    foreach ($data as $key => $value) {
+      if (!is_array($value) || array_is_list($value)) {
+        continue;
+      }
+      foreach ($this->flattenComposite($value) as $sub_key => $sub_value) {
+        if (is_scalar($sub_value) || $sub_value === NULL) {
+          $data[$key . '__' . $sub_key] ??= $sub_value;
+        }
+      }
+    }
+    return $data;
+  }
+
+  /**
+   * Recursively flattens one composite value to [sub_key => scalar].
+   *
+   * Nested composites use "__" as separator, mirroring Webform storage:
+   *   ['address' => ['city' => 'X']] => ['address__city' => 'X'].
+   * Non-associative (multiple) values are returned as-is under their key.
+   */
+  private function flattenComposite(array $value, string $prefix = ''): array {
+    $flat = [];
+    foreach ($value as $sub_key => $sub_value) {
+      $flat_key = $prefix === '' ? (string) $sub_key : $prefix . '__' . $sub_key;
+      if (is_array($sub_value) && !array_is_list($sub_value)) {
+        foreach ($this->flattenComposite($sub_value, $flat_key) as $k => $v) {
+          $flat[$k] = $v;
+        }
+      }
+      else {
+        $flat[$flat_key] = $sub_value;
+      }
+    }
+    return $flat;
   }
 
   /**
