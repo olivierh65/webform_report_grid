@@ -911,6 +911,21 @@
           });
         }
       }
+      // La largeur (c.w) a pu changer (bouton ↔) : l'appliquer au widget
+      // GridStack, sinon il garde son ancienne largeur jusqu'au re-render.
+      if (gs && card && !isFolder(card)) {
+        const item = grid.querySelector(`.wrg-card[data-i="${CSS.escape(path)}"]`)?.closest('.grid-stack-item');
+        if (item) {
+          try { gs.update(item, { w: Math.min(gridColumns, Math.max(1, card.w || 4)) }); } catch (e) { /* ignore */ }
+        }
+      }
+      else if (gs && card && isFolder(card)) {
+        const head = grid.querySelector(`[data-folder="${CSS.escape(path)}"]`);
+        const item = head?.closest('.grid-stack-item');
+        if (item) {
+          try { gs.update(item, { w: Math.min(gridColumns, Math.max(1, card.w || 6)) }); } catch (e) { /* ignore */ }
+        }
+      }
     }
 
     /**

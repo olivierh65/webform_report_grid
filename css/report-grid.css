@@ -3,8 +3,16 @@
    depuis la page de réglages (webform_report_grid.settings). */
 .wrg{--wrg-bg:#f2f3ef;--wrg-sf:#fff;--wrg-tx:#1c2227;--wrg-mu:#66707a;--wrg-ln:#d9dcd5;--wrg-ac:#f0b800;--wrg-bl:#1f5fbf;--wrg-fs:.95rem;--wrg-gap:16px;font:400 var(--wrg-fs)/1.45 Barlow,system-ui,sans-serif;color:var(--wrg-tx)}
 
-/* Layout principal : palette fixe à gauche, grille à droite. */
-.wrg-layout{display:grid;grid-template-columns:290px 1fr;gap:20px;align-items:start;min-height:calc(100vh - 120px)}
+/* Layout principal : palette fixe à gauche, grille à droite.
+   Pleine largeur : le module sort du conteneur étroit du thème
+   (page, sidebar...) pour utiliser toute la largeur viewport. */
+.wrg{width:100%;max-width:100%;box-sizing:border-box}
+.wrg-layout{display:grid;grid-template-columns:290px minmax(0,1fr);gap:20px;align-items:start;min-height:calc(100vh - 120px)}
+.wrg-main{min-width:0;max-width:100%}
+.wrg-grid{width:100%;max-width:100%}
+/* Casse le max-width hérité du thème (ex: .layout-container, main, article)
+   quand le report est affiché : pleine largeur viewport avec petit padding. */
+main:has(.wrg),.layout-container:has(.wrg),.page-content:has(.wrg),article:has(.wrg){max-width:none !important;width:100%}
 /* Read-only mode: no palette, use full width for grid. */
 .wrg-read-only .wrg-layout{grid-template-columns:1fr}
 @media(max-width:820px){
@@ -172,7 +180,7 @@
 .wrg-folder-head .wrg-t{flex:1 1 auto}
 .wrg-folder-count{font-size:12px;color:var(--wrg-mu);background:var(--wrg-bg);border:1px solid var(--wrg-ln);border-radius:10px;padding:1px 9px;white-space:nowrap;flex-shrink:0}
 /* Sous-grille du dossier : zone de drop visible, min-height pour drop à vide. */
-.grid-stack-item .grid-stack.nested{margin-top:6px;min-height:80px;border:1px dashed transparent;border-radius:6px;padding:4px;transition:border-color .15s,background .15s;background:rgba(106,79,179,.04)}
+.grid-stack-item .grid-stack.nested{margin-top:6px;min-height:80px;width:100%;max-width:100%;border:1px dashed transparent;border-radius:6px;padding:4px;transition:border-color .15s,background .15s;background:rgba(106,79,179,.04)}
 .grid-stack-item .grid-stack.nested.ui-droppable-over,.grid-stack-item .grid-stack.nested.grid-stack-over{border-color:#6a4fb3;background:#f4f0fd}
 .grid-stack.nested .wrg-card{min-height:120px}
 /* Dossier replié : masque la sous-grille. */
