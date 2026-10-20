@@ -121,14 +121,28 @@ class ReportDataService {
    * Flattens one submission: display name + contact + field values.
    */
   protected function flatten(array $data, array $contact_keys = []): array {
-    $first = trim((string) ($data[$contact_keys['first_name'] ?? ''] ?? $this->findBySuffix($data, ['__first_name', '__first']) ?? $data['first_name'] ?? ''));
-    $last = trim((string) ($data[$contact_keys['last_name'] ?? ''] ?? $this->findBySuffix($data, ['__last_name', '__last']) ?? $data['last_name'] ?? ''));
+    // Normalize: composite elements may come as nested arrays
+    // (['identite' => ['first_name' => ..., 'last_name' => ...]])
+    // or as flattened keys (['identite__first_name' => ...]),
+    // depending on how the submission was stored.
+    // Expand nested composites to flattened keys so both formats work.
+    foreach ($data as $key => $value) {
+      if (is_array($value) && !array_is_list($value)) {
+        foreach ($value as $sub_key => $sub_value) {
+          if (is_scalar($sub_value) || $sub_value === NULL) {
+            $data[$key . '__' . $sub_key] ??= $sub_value;
+          }
+        }
+      }
+    }
+    $first = trim((string) ($data[$contact_keys['first_name'] ?? ''] ?? $this->findBySuffix($data, ['__first_name', '__first']) ?? $data['first_name'] ?? $data['identite']['first_name'] ?? ''));
+    $last = trim((string) ($data[$contact_keys['last_name'] ?? ''] ?? $this->findBySuffix($data, ['__last_name', '__last']) ?? $data['last_name'] ?? $data['identite']['last_name'] ?? ''));
     $full = trim($first . ' ' . $last) ?: 'Anonymous';
     // Short display name by default (privacy): "Julien D.".
     $short = $first . ($last !== '' ? ' ' . mb_substr($last, 0, 1) . '.' : '');
     $contacts = [
-      'phone' => (string) ($data[$contact_keys['phone'] ?? ''] ?? $this->findBySuffix($data, ['__phone', '__tel']) ?? $data['phone'] ?? ''),
-      'email' => (string) ($data[$contact_keys['email'] ?? ''] ?? $this->findBySuffix($data, ['__email', '__e_mail']) ?? $data['email'] ?? ''),
+      'phone' => (string) ($data[$contact_keys['phone'] ?? ''] ?? $this->findBySuffix($data, ['__phone', '__tel']) ?? $data['phone'] ?? $data['identite']['phone'] ?? ''),
+      'email' => (string) ($data[$contact_keys['email'] ?? ''] ?? $this->findBySuffix($data, ['__email', '__e_mail']) ?? $data['email'] ?? $data['identite']['email'] ?? ''),
     ];
     $fields = [];
     foreach ($data as $key => $value) {
