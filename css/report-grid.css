@@ -162,20 +162,31 @@
   .wrg-detail-summary .wrg-big{font-size:32px}
 }
 
-/* Folder (container) cards: group other cards, collapsible. */
+/* Folder (container) cards: real GridStack sub-grids (nested grids demo).
+   Le widget parent contient le head (titre); les enfants sont dans
+   .grid-stack.nested qui suit. */
 .wrg-card.wrg-folder{border-left-color:#6a4fb3;background:linear-gradient(90deg,var(--wrg-sf) 96%,#efeafa 100%);cursor:default}
 .wrg-folder-head{display:flex;align-items:center;gap:8px}
 .wrg-folder-toggle{border:1px solid var(--wrg-ln);background:var(--wrg-bg);color:var(--wrg-tx);border-radius:5px;font:inherit;font-size:13px;line-height:1;padding:4px 9px;cursor:pointer;flex-shrink:0}
 .wrg-folder-toggle:hover{border-color:#6a4fb3}
 .wrg-folder-head .wrg-t{flex:1 1 auto}
 .wrg-folder-count{font-size:12px;color:var(--wrg-mu);background:var(--wrg-bg);border:1px solid var(--wrg-ln);border-radius:10px;padding:1px 9px;white-space:nowrap;flex-shrink:0}
+/* Sous-grille du dossier : zone de drop visible, min-height pour drop à vide. */
+.grid-stack-item .grid-stack.nested{margin-top:6px;min-height:80px;border:1px dashed transparent;border-radius:6px;padding:4px;transition:border-color .15s,background .15s;background:rgba(106,79,179,.04)}
+.grid-stack-item .grid-stack.nested.ui-droppable-over,.grid-stack-item .grid-stack.nested.grid-stack-over{border-color:#6a4fb3;background:#f4f0fd}
+.grid-stack.nested .wrg-card{min-height:120px}
+/* Dossier replié : masque la sous-grille. */
+.wrg-card.wrg-collapsed + .grid-stack.nested,.grid-stack-item.wrg-collapsed-sub > .grid-stack.nested{display:none}
+/* Legacy fallback (sans GridStack) : enfants en CSS grid simple. */
 .wrg-folder-children{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(220px,100%),1fr));gap:calc(var(--wrg-gap) * .625);margin-top:4px;min-height:60px;border:1px dashed transparent;border-radius:6px;padding:4px;transition:border-color .15s,background .15s}
 .wrg-folder-children .wrg-card{min-height:140px}
 .wrg-folder-empty{grid-column:1/-1;text-align:center;color:var(--wrg-mu);font-size:12px;font-style:italic;padding:14px 8px;border:1px dashed var(--wrg-ln);border-radius:6px}
 .wrg-card.wrg-collapsed .wrg-folder-children{display:none}
 .wrg-card.wrg-drop-hover-folder{box-shadow:0 0 0 2px #6a4fb3}
 .wrg-card.wrg-drop-hover-folder .wrg-folder-children{border-color:#6a4fb3;background:#f4f0fd}
-/* Child wrapper + up/down order controls (edit mode only). */
+/* Highlight "combiner" (palette -> sur carte data). */
+.wrg-card.wrg-drop-hover{box-shadow:0 0 0 2px #2a7f4d}
+/* Child wrapper + up/down order controls (edit mode, fallback legacy). */
 .wrg-folder-kid{position:relative}
 .wrg-kid-order{position:absolute;top:4px;right:4px;z-index:2;display:flex;gap:2px}
 .wrg-kid-order button{border:1px solid var(--wrg-ln);background:var(--wrg-bg);color:var(--wrg-tx);border-radius:4px;font-size:11px;line-height:1;padding:3px 6px;cursor:pointer;opacity:.55}
