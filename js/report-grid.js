@@ -538,9 +538,12 @@
         cards.forEach((c, idx) => {
           const p = prefix === '' ? String(idx) : `${prefix}/${idx}`;
           if (isFolder(c)) {
-            const head = grid.querySelector(`[data-folder="${CSS.escape(p)}"] .wrg-folder-head`);
-            // Le head du dossier est le content du widget parent : on le
-            // retrouve via le widget dont le content contient data-folder="p".
+            const head = grid.querySelector(`[data-folder="${CSS.escape(p)}"]`);
+            if (head) {
+              const tmp = document.createElement('div');
+              tmp.innerHTML = renderFolderHead(c, p, readOnly);
+              head.replaceWith(tmp.firstElementChild);
+            }
             walk(c.children || [], p);
           }
           else {
@@ -668,12 +671,14 @@
         <div class="wrg-tools">
           <button data-x="${path}" title="Retirer le dossier" aria-label="Retirer le dossier">✕</button>
         </div>`;
-      return `<div class="wrg-folder-head" data-folder="${path}">
+      return `<article class="wrg-card wrg-folder${collapsed ? ' wrg-collapsed' : ''}" data-folder="${path}">
+        <div class="wrg-folder-head">
           <button class="wrg-folder-toggle" data-toggle="${path}" aria-expanded="${collapsed ? 'false' : 'true'}" title="${collapsed ? 'Déplier' : 'Replier'}">${collapsed ? '▶' : '▼'}</button>
           ${labelHtml}
           <span class="wrg-folder-count">${count} carte${count > 1 ? 's' : ''}</span>
           ${toolsHtml}
-        </div>`;
+        </div>
+      </article>`;
     }
 
     /**
@@ -888,15 +893,15 @@
       currentRows = filteredRows();
       const card = getCardByPath(path);
       if (!card) return;
-      const host = grid.querySelector(`.wrg-card[data-i="${CSS.escape(path)}"]`);
+      // Dossiers : host = [data-folder] (pas de data-i sur le head).
+      const host = isFolder(card)
+        ? grid.querySelector(`[data-folder="${CSS.escape(path)}"]`)
+        : grid.querySelector(`.wrg-card[data-i="${CSS.escape(path)}"]`);
       if (!host) return;
       const tmp = document.createElement('div');
       if (isFolder(card)) {
         tmp.innerHTML = renderFolderHead(card, path, readOnly);
-        const head = host.querySelector(':scope > .wrg-folder-head, :scope .wrg-folder-head');
-        const newHead = tmp.firstElementChild;
-        if (head && newHead) head.replaceWith(newHead);
-        else host.replaceWith(newHead);
+        host.replaceWith(tmp.firstElementChild);
       }
       else {
         tmp.innerHTML = renderCard(card, path, currentRows, readOnly);
@@ -1117,7 +1122,8 @@
           const folder = getCardByPath(p);
           if (folder && isFolder(folder)) {
             folder.collapsed = !folder.collapsed;
-            const cardEl = e.target.closest('.wrg-card');
+            // Le head est une .wrg-card.wrg-folder (bordure + fond).
+            const cardEl = e.target.closest('.wrg-card.wrg-folder') || e.target.closest('[data-folder]');
             if (cardEl) {
               cardEl.classList.toggle('wrg-collapsed', !!folder.collapsed);
               const btn = cardEl.querySelector('[data-toggle]');
