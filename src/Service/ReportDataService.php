@@ -72,14 +72,45 @@ class ReportDataService {
     $contact_keys = [];
     foreach ($fields as $key => $field) {
       if (!empty($field['contact'])) {
+        // 1) Robust: match on the field KEY suffix (e.g. "identite__first_name").
+        // Works regardless of labels / translations.
+        if (preg_match('/__(first_name|first|last_name|last|email|phone|tel)$/i', (string) $key, $m)) {
+          $norm = strtolower($m[1]);
+          if ($norm === 'first') {
+            $norm = 'first_name';
+          }
+          elseif ($norm === 'last') {
+            $norm = 'last_name';
+          }
+          elseif ($norm === 'tel') {
+            $norm = 'phone';
+          }
+          $contact_keys[$norm] ??= $key;
+          continue;
+        }
         // Sub-field label ends with " — First name", " — Last name", " — Email", " — Phone".
-        // Extract the sub-field type from the label suffix.
-        if (preg_match('/ — (First name|Last name|Email|Phone)$/i', $field['label'], $m)) {
-          $contact_keys[strtolower(str_replace(' ', '_', $m[1]))] = $key;
+        // Extract the sub-field type from the label suffix (EN + FR labels).
+        if (preg_match('/ — (First name|Last name|Email|E-mail|Phone|Téléphone|Prénom|Nom)$/iu', $field['label'], $m)) {
+          $norm = mb_strtolower($m[1]);
+          $map = [
+            'first name' => 'first_name',
+            'prénom' => 'first_name',
+            'prenom' => 'first_name',
+            'last name' => 'last_name',
+            'nom' => 'last_name',
+            'email' => 'email',
+            'e-mail' => 'email',
+            'phone' => 'phone',
+            'téléphone' => 'phone',
+            'telephone' => 'phone',
+          ];
+          if (isset($map[$norm])) {
+            $contact_keys[$map[$norm]] ??= $key;
+          }
         }
         // Also handle cases where sub_key is 'first'/'last' but label says 'First name'/'Last name'.
         elseif (preg_match('/ — (First|Last)$/i', $field['label'], $m)) {
-          $contact_keys[strtolower($m[1]) . '_name'] = $key;
+          $contact_keys[strtolower($m[1]) . '_name'] ??= $key;
         }
       }
     }
@@ -90,14 +121,14 @@ class ReportDataService {
    * Flattens one submission: display name + contact + field values.
    */
   protected function flatten(array $data, array $contact_keys = []): array {
-    $first = trim((string) ($data[$contact_keys['first_name'] ?? ''] ?? $data['first_name'] ?? ''));
-    $last = trim((string) ($data[$contact_keys['last_name'] ?? ''] ?? $data['last_name'] ?? ''));
+    $first = trim((string) ($data[$contact_keys['first_name'] ?? ''] ?? $this->findBySuffix($data, ['__first_name', '__first']) ?? $data['first_name'] ?? ''));
+    $last = trim((string) ($data[$contact_keys['last_name'] ?? ''] ?? $this->findBySuffix($data, ['__last_name', '__last']) ?? $data['last_name'] ?? ''));
     $full = trim($first . ' ' . $last) ?: 'Anonymous';
     // Short display name by default (privacy): "Julien D.".
     $short = $first . ($last !== '' ? ' ' . mb_substr($last, 0, 1) . '.' : '');
     $contacts = [
-      'phone' => (string) ($data[$contact_keys['phone'] ?? ''] ?? $data['phone'] ?? ''),
-      'email' => (string) ($data[$contact_keys['email'] ?? ''] ?? $data['email'] ?? ''),
+      'phone' => (string) ($data[$contact_keys['phone'] ?? ''] ?? $this->findBySuffix($data, ['__phone', '__tel']) ?? $data['phone'] ?? ''),
+      'email' => (string) ($data[$contact_keys['email'] ?? ''] ?? $this->findBySuffix($data, ['__email', '__e_mail']) ?? $data['email'] ?? ''),
     ];
     $fields = [];
     foreach ($data as $key => $value) {
@@ -115,6 +146,27 @@ class ReportDataService {
       $fields[$key] = $value;
     }
     return ['n' => $short ?: $full, 'full' => $full, 'contacts' => $contacts, 'f' => $fields];
+  }
+
+  /**
+   * Fallback lookup: first non-empty value whose key ends with one of $suffixes.
+   *
+   * Safety net when the webform structure in DB differs from discovery
+   * (e.g. config not synced between environments): data keys like
+   * "identite__first_name" are still found.
+   */
+  private function findBySuffix(array $data, array $suffixes): mixed {
+    foreach ($data as $key => $value) {
+      if ($value === NULL || $value === '' || $value === []) {
+        continue;
+      }
+      foreach ($suffixes as $suffix) {
+        if (str_ends_with((string) $key, $suffix)) {
+          return $value;
+        }
+      }
+    }
+    return NULL;
   }
 
   /**
