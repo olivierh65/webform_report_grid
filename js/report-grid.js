@@ -324,13 +324,18 @@
           gs = GridStack.init({
             // Fixed high column count (setting, default 12): fine-grained card
             // widths set in build are kept as-is in front (same column count).
-            // Responsive: columnOpts breakpoints reduce the column count on
-            // narrow screens so cards reflow instead of shrinking.
+            // Responsive: fixed breakpoints like the official "Responsive
+            // breakpoint" demo (demo/responsive.html): narrow screens stack
+            // cards (1 col) instead of squeezing them.
             column: gridColumns,
             columnOpts: {
+              breakpointForWindow: true,
+              layout: 'moveScale',
               breakpoints: [
-                { w: 700, c: Math.max(1, Math.round(gridColumns / 4)) },
-                { w: 1100, c: Math.max(2, Math.round(gridColumns / 2)) },
+                { w: 700, c: 1 },
+                { w: 850, c: 3 },
+                { w: 950, c: 6 },
+                { w: 1100, c: 8 },
               ],
             },
             cellHeight: 120, // Fixed cell height in px (cards will be multiples of this)
@@ -339,9 +344,10 @@
             // Fixed: cap at 20 rows.
             maxRow: autoSize ? 0 : 20,
             margin: gap,
-            // float: items stay where placed/dropped, side by side.
-            // (float:false compacts everything into a single vertical stack.)
-            float: true,
+            // float:false (= mode 'top'): cards pack upward when space frees
+            // (e.g. folder collapse), while keeping widths + side-by-side.
+            // float:true would leave a gap below a collapsed folder.
+            float: false,
             animate: true,
             // Auto-size: cards grow to show all content; else fixed height set at creation.
             sizeToContent: autoSize,
