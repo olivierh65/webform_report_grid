@@ -690,13 +690,17 @@
           const inner = renderCard(c, i, rows, readOnly);
           const fallbackW = isFolder(c) ? Math.round(gridColumns / 2) : Math.round(gridColumns / 3);
           const w = Math.min(gridColumns, Math.max(1, c.w || fallbackW));
+          // Type démo advanced-nested : x/y/w/h restaurés depuis le JSON
+          // sauvé (gs.save). Sans x/y GridStack auto-place tout en colonne.
+          const xAttr = Number.isInteger(c.x) && c.x >= 0 ? ` gs-x="${c.x}"` : '';
+          const yAttr = Number.isInteger(c.y) && c.y >= 0 ? ` gs-y="${c.y}"` : '';
           // Auto-size: no fixed height (GridStack sizeToContent measures content
           // and grows the item to fit). Fixed: use saved height.
           const hAttr = autoSize ? '' : ` gs-h="${c.h || 2}"`;
           const minH = autoSize ? 1 : (c.min_h || 1);
           const maxHAttr = autoSize ? '' : ` gs-max-h="${c.max_h || 5}"`;
           const stc = autoSize ? ' gs-size-to-content="true"' : '';
-          return `<div class="grid-stack-item" gs-w="${w}"${hAttr} gs-min-h="${minH}"${maxHAttr}${stc} data-gs-index="${i}"><div class="grid-stack-item-content">${inner}</div></div>`;
+          return `<div class="grid-stack-item" gs-id="${i}"${xAttr}${yAttr} gs-w="${w}"${hAttr} gs-min-h="${minH}"${maxHAttr}${stc} data-gs-index="${i}"><div class="grid-stack-item-content">${inner}</div></div>`;
         }).join('');
 
         try {
@@ -1298,6 +1302,30 @@
       saveBtn.addEventListener('click', async () => {
         if (saveState) saveState.textContent = 'Enregistrement…';
         try {
+          // Type démo advanced-nested : grid.save() = source de vérité
+          // (x/y/w/h possédés par GridStack). On reporte ces valeurs dans
+          // state.cards avant POST pour que le front les restaure.
+          if (gs) {
+            try {
+              const saved = gs.save(false, false);
+              const byIndex = {};
+              (saved || []).forEach((n) => {
+                const idx = parseInt(String(n.id ?? ''), 10);
+                if (Number.isInteger(idx) && idx >= 0) byIndex[idx] = n;
+              });
+              grid.querySelectorAll('.grid-stack-item').forEach((el) => {
+                const rawIdx = el.dataset.gsIndex ?? el.querySelector(':scope > .grid-stack-item-content > .wrg-card')?.dataset.i;
+                const i = parseInt(String(rawIdx).split('/')[0], 10);
+                const card = state.cards[i];
+                if (!card) return;
+                const node = byIndex[i] || el.gridstackNode || {};
+                if (node.x !== undefined) card.x = +node.x || 0;
+                if (node.y !== undefined) card.y = +node.y || 0;
+                if (node.w !== undefined) card.w = Math.min(gridColumns, Math.max(1, +node.w || card.w || 1));
+                if (node.h !== undefined) card.h = Math.max(1, +node.h || card.h || 2);
+              });
+            } catch (e) { /* ignore, fallback state.cards */ }
+          }
           // Use Drupal's standard CSRF token from drupalSettings.
           const csrf = drupalSettings?.webformReportGrid?.csrfToken || '';
           const res = await fetch(`${cfg.dataUrl.replace(/\/data$/, '')}/save`, {
