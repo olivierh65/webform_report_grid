@@ -3,15 +3,7 @@
  * Grid viewer: palette (groups/fields) + draggable cards + dialogs.
  *
  * Data comes from /webform-report/{id}/data (JSON). Cards config lives in
- * drupalSettings.webformReportGrid and is POSTed back on save.
- *
- * Layout engine: GridStack NESTED GRIDS (cf. exemple officiel "Nested grids
- * demo" gridstack/demo/nested.html) :
- * - GridStack.addGrid() construit TOUT depuis JSON (grille + sous-grilles),
- * - GridStack.renderCB rend le HTML de chaque widget (cartes + heads dossiers),
- * - dossiers = widgets parents avec subGridOpts (column:'auto', acceptWidgets),
- * - drag natif inter-grilles, positions/dimensions possédées par GridStack,
- * - syncFromGrid() resync state.cards via grid.save() après chaque mouvement.
+ * drupalSettings.webformReportGrid and is POSTed back on save (TBD).
  *
  * Cards can be:
  * - Simple: { field: "key", agg: "sum", w: 1, label: "..." }
@@ -319,244 +311,86 @@
       return typeof v === 'number' && v > 1 ? v : 0;
     };
 
-    // GridStack nested-grids mode (cf. exemple officiel "Nested grids demo"):
-    // - grille principale + une vraie sous-grille par dossier (subGridOpts),
-    // - GridStack possède positions ET dimensions, drag natif inter-grilles,
-    // - on ne fait que RENDRE le contenu via renderCB, jamais de innerHTML manuel.
+    // GridStack v14 - using new API with columnOpts for responsive behavior.
+    // columnWidth / margin / sizeToContent come from display settings.
     let gs = null;
-    let currentRows = [];
-    // renderCB officiel: GridStack appelle ça pour chaque widget (y compris
-    // enfants de sous-grilles). w.content = HTML de la carte.
-    function gridRenderCB(el, w) {
-      if (w && typeof w.content === 'string') el.innerHTML = w.content;
-    }
-
-    function cardToNode(c, path) {
-      const w = Math.min(gridColumns, Math.max(1, c.w || Math.round(gridColumns / 3)));
-      if (isFolder(c)) {
-        const kids = Array.isArray(c.children) ? c.children : [];
-        return {
-          w: Math.min(gridColumns, Math.max(1, c.w || Math.round(gridColumns / 2))),
-          sizeToContent: !!display.autoSizeCards,
-          content: renderFolderHead(c, String(path), readOnly),
-          subGridOpts: {
-            // column:'auto' (reco officielle): les enfants gardent leur taille au resize.
-            column: 'auto',
-            cellHeight: 120,
-            margin: Math.min(40, Math.max(0, +display.cardGap || 0)),
-            acceptWidgets: !readOnly,
-            staticGrid: !!readOnly,
-            children: kids.map((kid, j) => cardToNode(kid, `${path}/${j}`)),
-          },
-        };
-      }
-      const node = {
-        w,
-        sizeToContent: !!display.autoSizeCards,
-        content: renderCard(c, path, currentRows, readOnly),
-      };
-      if (!display.autoSizeCards && c.h) node.h = c.h;
-      return node;
-    }
-
-    function buildGridOptions() {
-      return {
-        column: gridColumns,
-        columnOpts: {
-          breakpoints: [
-            { w: 700, c: Math.max(1, Math.round(gridColumns / 4)) },
-            { w: 1100, c: Math.max(2, Math.round(gridColumns / 2)) },
-          ],
-        },
-        cellHeight: 120,
-        minRow: 0,
-        maxRow: display.autoSizeCards ? 0 : 20,
-        margin: Math.min(40, Math.max(0, +display.cardGap || 0)),
-        float: true,
-        animate: true,
-        staticGrid: !!readOnly,
-        acceptWidgets: !readOnly,
-        draggable: readOnly ? undefined : {
-          handle: '.wrg-card',
-          cancel: 'button, select, input, textarea, a, [contenteditable="true"], dialog, .wrg-names',
-          scroll: true,
-        },
-        resizable: readOnly ? undefined : {
-          handles: 'se',
-          autoHide: true,
-          minHeight: 120,
-          maxHeight: display.autoSizeCards ? 4000 : 600,
-        },
-        children: state.cards.map((c, i) => cardToNode(c, String(i))),
-      };
-    }
-
     function gridstackSync() {
       if (typeof GridStack === 'undefined' || !grid) return false;
-      return true;
-    }
-
-    // (Re)crée toute la grille depuis state.cards, comme load() de l'exemple.
-    function rebuildGrid() {
-      if (!gridstackSync()) return false;
-      try {
-        if (gs) {
-          try { gs.destroy(false); } catch (e) { /* ignore */ }
-          gs = undefined;
-        }
-        grid.innerHTML = '';
-        GridStack.renderCB = gridRenderCB;
-        gs = GridStack.addGrid(grid, buildGridOptions());
-        // Applique l'état replié des dossiers (sous-grille masquée).
-        state.cards.forEach((c, i) => {
-          if (isFolder(c) && c.collapsed) {
-            const widgets = grid.querySelectorAll(':scope > .grid-stack-item');
-            const item = widgets[i];
-            if (item) {
-              const sub = item.querySelector(':scope > .grid-stack-item-content .grid-stack.nested');
-              if (sub) sub.style.display = 'none';
-              item.classList.add('wrg-collapsed-sub');
-            }
-          }
-        });
-        if (!readOnly) {
-          // Palette -> grille : drag natif via setupDragIn (exemple officiel).
-          GridStack.setupDragIn('.wrg-chip', undefined, (el) => {
-            const f = state.groups.flatMap((g) => g.fields).find((x) => x.key === el.dataset.field);
-            if (!f) return undefined;
-            const agg = Object.keys(state.aggs[f.kind] || {})[0] || 'sum';
-            return {
-              w: Math.max(1, Math.round(gridColumns / 3)),
-              sizeToContent: !!display.autoSizeCards,
-              content: '__wrg_new__:' + f.key,
-            };
-          });
-          // Tout déplacement/resize/reparentage natif => resync state.cards + dirty.
-          gs.on('change', syncFromGrid);
-          gs.on('added removed change', syncFromGrid);
-        }
-        return true;
-      } catch (e) {
-        console.error('GridStack init failed:', e);
-        return false;
-      }
-    }
-
-    // Trouve la carte state correspondant à un widget (par data-i rendu dans le HTML).
-    function cardKeyOf(widgetEl) {
-      const inner = widgetEl.querySelector(':scope > .grid-stack-item-content .wrg-card, :scope > .grid-stack-item-content > .wrg-folder-head');
-      const host = widgetEl.querySelector(':scope > .grid-stack-item-content [data-i]');
-      const raw = host?.dataset?.i ?? inner?.dataset?.i ?? null;
-      return raw !== null ? String(raw) : null;
-    }
-
-    // Resync state.cards depuis grid.save() (positions + ordre + sous-grilles),
-    // en conservant les configs métier (field/agg/labels...) par data-i.
-    // Les widgets fraîchement droppés depuis la palette portent
-    // content='__wrg_new__:fieldKey' et deviennent de vraies cartes.
-    function syncFromGrid() {
-      if (!gs) return;
-      let saved;
-      try {
-        saved = gs.save(false, true);
-      } catch (e) {
-        return;
-      }
-      const byPath = {};
-      const indexState = (cards, prefix) => {
-        cards.forEach((c, idx) => {
-          const p = prefix === '' ? String(idx) : `${prefix}/${idx}`;
-          byPath[p] = c;
-          if (isFolder(c) && Array.isArray(c.children)) indexState(c.children, p);
-        });
-      };
-      indexState(state.cards, '');
-      const convert = (nodes, depth) => {
-        const out = [];
-        (nodes || []).forEach((n) => {
-          if (n.subGridOpts) {
-            // Dossier : récupère label/collapsed depuis l'ancien state via data-i,
-            // sinon valeurs par défaut.
-            const headHtml = n.content || '';
-            const m = headHtml.match(/data-folder="([^"]+)"/);
-            const old = (m && byPath[m[1]]) || {};
-            const labelM = headHtml.match(/data-folder-label="[^"]*"[^>]*>([^<]*)/);
-            out.push({
-              type: 'folder',
-              label: (typeof old.label === 'string' && old.label) || (labelM ? labelM[1].trim() : '') || 'Dossier',
-              collapsed: typeof old.collapsed === 'boolean' ? old.collapsed : false,
-              w: n.w,
-              h: n.h,
-              children: convert(n.subGridOpts.children || [], depth + 1),
+      if (!gs) {
+        try {
+          const autoSize = !!display.autoSizeCards;
+          const colW = Math.min(600, Math.max(140, +display.columnWidth || 280));
+          const gap = Math.min(40, Math.max(0, +display.cardGap || 0));
+          gs = GridStack.init({
+            // Fixed high column count (setting, default 12): fine-grained card
+            // widths set in build are kept as-is in front (same column count).
+            // Responsive: columnOpts breakpoints reduce the column count on
+            // narrow screens so cards reflow instead of shrinking.
+            column: gridColumns,
+            columnOpts: {
+              breakpoints: [
+                { w: 700, c: Math.max(1, Math.round(gridColumns / 4)) },
+                { w: 1100, c: Math.max(2, Math.round(gridColumns / 2)) },
+              ],
+            },
+            cellHeight: 120, // Fixed cell height in px (cards will be multiples of this)
+            minRow: 0,
+            // Auto-size: no row cap so tall cards can grow freely.
+            // Fixed: cap at 20 rows.
+            maxRow: autoSize ? 0 : 20,
+            margin: gap,
+            // float: items stay where placed/dropped, side by side.
+            // (float:false compacts everything into a single vertical stack.)
+            float: true,
+            animate: true,
+            // Auto-size: cards grow to show all content; else fixed height set at creation.
+            sizeToContent: autoSize,
+            draggable: {
+              handle: '.wrg-card',
+              // Don't start a drag when interacting with controls inside cards
+              // (folder toggle, buttons, selects, editable labels...).
+              cancel: 'button, select, input, textarea, a, [contenteditable="true"], dialog, .wrg-names',
+              scroll: true,
+            },
+            resizable: {
+              handles: 'se',
+              autoHide: true,
+              minHeight: 120, // Minimum 1 row
+              // Auto-size: allow growing tall; fixed: cap at 5 rows.
+              maxHeight: autoSize ? 4000 : 600,
+            },
+          }, grid);
+          gs.on('change', () => {
+            // GridStack owns positions (x/y). We only persist DIMENSIONS (w/h)
+            // and the visual order. Never write x/y ourselves.
+            const order = [];
+            grid.querySelectorAll('.grid-stack-item').forEach((el) => {
+              // Top-level only: data-gs-index is the source of truth.
+              const rawIdx = el.dataset.gsIndex ?? el.querySelector(':scope > .grid-stack-item-content > .wrg-card')?.dataset.i;
+              const i = parseInt(String(rawIdx).split('/')[0], 10);
+              if (Number.isInteger(i) && i >= 0 && state.cards[i]) {
+                const card = state.cards[i];
+                // Clamp to the current grid column count (responsive may shrink it).
+                const w = Math.min(gridColumns, Math.max(1, +(el.dataset.gsW || card.w || 1)));
+                const h = +(el.dataset.gsH || card.h || 2);
+                if (w !== card.w || h !== card.h) {
+                  card.w = w;
+                  card.h = h;
+                  markDirty();
+                }
+                order.push({ card, x: +(el.dataset.gsX || 0), y: +(el.dataset.gsY || 0) });
+              }
             });
-          }
-          else if (typeof n.content === 'string' && n.content.startsWith('__wrg_new__:')) {
-            const fieldKey = n.content.slice('__wrg_new__:'.length);
-            const field = state.groups.flatMap((g) => g.fields).find((f) => f.key === fieldKey);
-            if (field) {
-              out.push({
-                field: field.key,
-                agg: Object.keys(state.aggs[field.kind] || {})[0] || 'sum',
-                w: n.w,
-                h: n.h,
-              });
-            }
-          }
-          else {
-            // Carte existante : retrouve la config par data-i dans le HTML.
-            const m = String(n.content || '').match(/data-i="([^"]+)"/);
-            const old = (m && byPath[m[1]]) || null;
-            if (old && !isFolder(old)) {
-              old.w = n.w;
-              if (n.h) old.h = n.h;
-              out.push(old);
-            }
-            else if (old && isFolder(old) && depth > 0) {
-              // Sécurité: pas de dossier imbriqué (1 niveau max) — on remonte ses enfants.
-              (old.children || []).forEach((kid) => out.push(kid));
-            }
-          }
-        });
-        return out;
-      };
-      const next = convert(saved.children || [], 0);
-      // Remplace state.cards en place (garde la référence).
-      state.cards.length = 0;
-      next.forEach((c) => state.cards.push(c));
-      markDirty();
-      // Re-render léger des contenus (les widgets GridStack restent en place,
-      // on met juste à jour le HTML via renderCB + contenus).
-      refreshContents();
-    }
-
-    // Met à jour le innerHTML de chaque widget depuis state.cards (sans
-    // détruire la grille) : ré-applique renderCard/renderFolderHead.
-    function refreshContents() {
-      if (!gs || !grid) return;
-      currentRows = filteredRows();
-      const walk = (cards, prefix) => {
-        cards.forEach((c, idx) => {
-          const p = prefix === '' ? String(idx) : `${prefix}/${idx}`;
-          if (isFolder(c)) {
-            const head = grid.querySelector(`[data-folder="${CSS.escape(p)}"]`);
-            if (head) {
-              const tmp = document.createElement('div');
-              tmp.innerHTML = renderFolderHead(c, p, readOnly);
-              head.replaceWith(tmp.firstElementChild);
-            }
-            walk(c.children || [], p);
-          }
-          else {
-            const host = grid.querySelector(`.wrg-card[data-i="${CSS.escape(p)}"]`);
-            if (host && host.closest('.grid-stack-item')) {
-              const tmp = document.createElement('div');
-              tmp.innerHTML = renderCard(c, p, currentRows, readOnly);
-              host.replaceWith(tmp.firstElementChild);
-            }
-          }
-        });
-      };
-      walk(state.cards, '');
+            order.sort((a, b) => a.y - b.y || a.x - b.x);
+            const ids = order.map((o) => state.cards.indexOf(o.card));
+            if (ids.length === state.cards.length) state.cards = ids.map((k) => state.cards[k]);
+          });
+        } catch (e) {
+          console.error('GridStack init failed:', e);
+          return false;
+        }
+      }
+      return true;
     }
 
     /**
@@ -642,7 +476,7 @@
         ? `<div class="wrg-g">${esc(groupLabel)}</div>`
         : `<div class="wrg-g" contenteditable="true" data-group-label="${path}">${esc(groupLabel)}</div>`;
 
-      return `<article class="wrg-card${isComposite ? ' wrg-composite' : ''}" data-i="${path}">
+      return `<article class="wrg-card${isComposite ? ' wrg-composite' : ''}" draggable="true" data-i="${path}" data-drop-target="true">
         <div class="wrg-top">
           <div>
             ${labelHtml}
@@ -656,34 +490,8 @@
     }
 
     /**
-     * Renders a folder HEAD only (content of the parent widget).
-     * Children live in a real GridStack sub-grid (subGridOpts), not in HTML.
-     * data-folder="path" lets syncFromGrid() match the widget to state.
-     */
-    function renderFolderHead(c, path, readOnly = false) {
-      const children = Array.isArray(c.children) ? c.children : [];
-      const collapsed = !!c.collapsed;
-      const count = children.length;
-      const labelHtml = readOnly
-        ? `<div class="wrg-t">${esc(c.label || 'Dossier')}</div>`
-        : `<div class="wrg-t" contenteditable="true" data-folder-label="${path}">${esc(c.label || 'Dossier')}</div>`;
-      const toolsHtml = readOnly ? '' : `
-        <div class="wrg-tools">
-          <button data-x="${path}" title="Retirer le dossier" aria-label="Retirer le dossier">✕</button>
-        </div>`;
-      return `<article class="wrg-card wrg-folder${collapsed ? ' wrg-collapsed' : ''}" data-folder="${path}">
-        <div class="wrg-folder-head">
-          <button class="wrg-folder-toggle" data-toggle="${path}" aria-expanded="${collapsed ? 'false' : 'true'}" title="${collapsed ? 'Déplier' : 'Replier'}">${collapsed ? '▶' : '▼'}</button>
-          ${labelHtml}
-          <span class="wrg-folder-count">${count} carte${count > 1 ? 's' : ''}</span>
-          ${toolsHtml}
-        </div>
-      </article>`;
-    }
-
-    /**
-     * Legacy full-folder HTML (fallback sans GridStack uniquement).
-     * En mode GridStack, seuls renderFolderHead + sub-grids sont utilisés.
+     * Renders a folder (container) card: collapsible title + children grid.
+     * Children are rendered via renderCard with path "i/j".
      */
     function renderFolder(c, path, rows, readOnly = false) {
       const children = Array.isArray(c.children) ? c.children : [];
@@ -712,7 +520,7 @@
           <button data-w="${path}" title="Élargir ou réduire" aria-label="Élargir ou réduire">↔</button>
           <button data-x="${path}" title="Retirer le dossier" aria-label="Retirer le dossier">✕</button>
         </div>`;
-      return `<article class="wrg-card wrg-folder${collapsed ? ' wrg-collapsed' : ''}" data-i="${path}" data-folder="${path}">
+      return `<article class="wrg-card wrg-folder${collapsed ? ' wrg-collapsed' : ''}" draggable="true" data-i="${path}" data-folder="${path}" data-drop-target="true">
         <div class="wrg-folder-head">
           <button class="wrg-folder-toggle" data-toggle="${path}" aria-expanded="${collapsed ? 'false' : 'true'}" title="${collapsed ? 'Déplier' : 'Replier'}">${collapsed ? '▶' : '▼'}</button>
           ${labelHtml}
@@ -843,7 +651,7 @@
         ? `<div class="wrg-g">${esc(groupLabel)}</div>`
         : `<div class="wrg-g" contenteditable="true" data-group-label="${path}">${esc(groupLabel)}</div>`;
 
-      return `<article class="wrg-card wrg-composite wrg-detail-mode" data-i="${path}">
+      return `<article class="wrg-card wrg-composite wrg-detail-mode" draggable="true" data-i="${path}" data-drop-target="true">
         <div class="wrg-top">
           <div>
             ${labelHtml}
@@ -857,30 +665,62 @@
     }
 
     function render() {
-      currentRows = filteredRows();
+      const rows = filteredRows();
+      const useGs = gridstackSync();
 
       if (state.cards.length === 0) {
-        if (gs) {
-          try { gs.destroy(false); } catch (e) { /* ignore */ }
-          gs = undefined;
-        }
         grid.innerHTML = '<div class="wrg-empty">Glissez un champ ici pour créer votre première synthèse.</div>';
         return;
       }
 
-      if (gridstackSync()) {
-        // Comme load() de l'exemple : (re)crée TOUTE la grille depuis
-        // state.cards via GridStack.addGrid (positions + sous-grilles natifs).
-        if (!rebuildGrid()) {
-          // Fallback sans GridStack : HTML simple.
-          grid.innerHTML = state.cards.map((c, i) => renderCard(c, i, currentRows, readOnly)).join('');
+      if (useGs && gs) {
+        // GridStack mode: wrap each TOP-LEVEL card in grid-stack-item.
+        // Folders render their children as inner CSS grid (not nested GridStack).
+        // GridStack OWNS positions: we never inject x/y. Widths are plain
+        // COLUMN counts on the shared N-column grid (setting, default 12):
+        // a card set to 5 columns in build renders 5 columns in front.
+        const autoSize = !!display.autoSizeCards;
+        grid.innerHTML = state.cards.map((c, i) => {
+          const inner = renderCard(c, i, rows, readOnly);
+          const fallbackW = isFolder(c) ? Math.round(gridColumns / 2) : Math.round(gridColumns / 3);
+          const w = Math.min(gridColumns, Math.max(1, c.w || fallbackW));
+          // Auto-size: no fixed height (GridStack sizeToContent measures content
+          // and grows the item to fit). Fixed: use saved height.
+          const hAttr = autoSize ? '' : ` gs-h="${c.h || 2}"`;
+          const minH = autoSize ? 1 : (c.min_h || 1);
+          const maxHAttr = autoSize ? '' : ` gs-max-h="${c.max_h || 5}"`;
+          const stc = autoSize ? ' gs-size-to-content="true"' : '';
+          return `<div class="grid-stack-item" gs-w="${w}"${hAttr} gs-min-h="${minH}"${maxHAttr}${stc} data-gs-index="${i}"><div class="grid-stack-item-content">${inner}</div></div>`;
+        }).join('');
+
+        try {
+          gs.removeAll(false);
+          grid.querySelectorAll('.grid-stack-item').forEach((el) => gs.makeWidget(el));
+          // Auto-size: measure content AFTER layout. GridStack only auto-measures
+          // on add/resize events, not on innerHTML re-render, so we call
+          // resizeToContent explicitly once the browser has laid out the DOM.
+          if (autoSize) {
+            requestAnimationFrame(() => {
+              grid.querySelectorAll('.grid-stack-item').forEach((el) => {
+                try { gs.resizeToContent(el); } catch (e) { /* ignore */ }
+              });
+              // Second pass after positions settle (items below shifted).
+              requestAnimationFrame(() => {
+                grid.querySelectorAll('.grid-stack-item').forEach((el) => {
+                  try { gs.resizeToContent(el); } catch (e) { /* ignore */ }
+                });
+              });
+            });
+          }
+        } catch (e) {
+          console.warn('GridStack makeWidget failed:', e);
         }
-        return;
+      } else {
+        // Native CSS Grid mode
+        grid.innerHTML = state.cards.map((c, i) => {
+          return renderCard(c, i, rows, readOnly);
+        }).join('');
       }
-      // Native CSS Grid mode (GridStack absent)
-      grid.innerHTML = state.cards.map((c, i) => {
-        return renderCard(c, i, currentRows, readOnly);
-      }).join('');
     }
 
     /**
@@ -890,46 +730,33 @@
      */
     function updateCard(path) {
       path = String(path);
-      currentRows = filteredRows();
+      const rows = filteredRows();
       const card = getCardByPath(path);
-      if (!card) return;
-      // Dossiers : host = [data-folder] (pas de data-i sur le head).
-      const host = isFolder(card)
-        ? grid.querySelector(`[data-folder="${CSS.escape(path)}"]`)
-        : grid.querySelector(`.wrg-card[data-i="${CSS.escape(path)}"]`);
-      if (!host) return;
-      const tmp = document.createElement('div');
-      if (isFolder(card)) {
-        tmp.innerHTML = renderFolderHead(card, path, readOnly);
-        host.replaceWith(tmp.firstElementChild);
+      // Folder children live inside the top-level folder item: re-render the folder.
+      const topPath = path.split('/')[0];
+      const topCard = state.cards[+topPath];
+      const isChild = path.includes('/');
+      const renderPath = isChild ? topPath : path;
+      const toRender = isChild ? topCard : card;
+      if (!toRender) return;
+      const newHtml = renderCard(toRender, renderPath, rows, readOnly);
+      const cardEl = grid.querySelector(`.grid-stack-item[data-gs-index="${renderPath}"] .grid-stack-item-content`);
+      if (cardEl) {
+        cardEl.innerHTML = newHtml;
+        // Auto-size: re-measure after content change.
+        if (gs && display.autoSizeCards) {
+          const item = cardEl.closest('.grid-stack-item');
+          if (item) {
+            requestAnimationFrame(() => {
+              try { gs.resizeToContent(item); } catch (e) { /* ignore */ }
+            });
+          }
+        }
       }
       else {
-        tmp.innerHTML = renderCard(card, path, currentRows, readOnly);
-        host.replaceWith(tmp.firstElementChild);
-      }
-      // Auto-size: re-measure the widget after content change.
-      if (gs && display.autoSizeCards) {
-        const item = grid.querySelector(`.wrg-card[data-i="${CSS.escape(path)}"]`)?.closest('.grid-stack-item');
-        if (item) {
-          requestAnimationFrame(() => {
-            try { gs.resizeToContent(item); } catch (e) { /* ignore */ }
-          });
-        }
-      }
-      // La largeur (c.w) a pu changer (bouton ↔) : l'appliquer au widget
-      // GridStack, sinon il garde son ancienne largeur jusqu'au re-render.
-      if (gs && card && !isFolder(card)) {
-        const item = grid.querySelector(`.wrg-card[data-i="${CSS.escape(path)}"]`)?.closest('.grid-stack-item');
-        if (item) {
-          try { gs.update(item, { w: Math.min(gridColumns, Math.max(1, card.w || 4)) }); } catch (e) { /* ignore */ }
-        }
-      }
-      else if (gs && card && isFolder(card)) {
-        const head = grid.querySelector(`[data-folder="${CSS.escape(path)}"]`);
-        const item = head?.closest('.grid-stack-item');
-        if (item) {
-          try { gs.update(item, { w: Math.min(gridColumns, Math.max(1, card.w || 6)) }); } catch (e) { /* ignore */ }
-        }
+        const folderEl = grid.querySelector(`.wrg-card[data-i="${CSS.escape(renderPath)}"]`);
+        if (folderEl) folderEl.outerHTML = newHtml;
+        else console.warn('[updateCard] Card element not found for path', path);
       }
     }
 
@@ -1117,13 +944,11 @@
       grid.addEventListener('click', (e) => {
         if (e.target.dataset.toggle !== undefined) {
           // Folder collapse/expand (works in both modes, saved on next save).
-          // Avec les sous-grilles natives, on masque la sous-grille soeur.
           const p = String(e.target.dataset.toggle);
           const folder = getCardByPath(p);
           if (folder && isFolder(folder)) {
             folder.collapsed = !folder.collapsed;
-            // Le head est une .wrg-card.wrg-folder (bordure + fond).
-            const cardEl = e.target.closest('.wrg-card.wrg-folder') || e.target.closest('[data-folder]');
+            const cardEl = e.target.closest('.wrg-card');
             if (cardEl) {
               cardEl.classList.toggle('wrg-collapsed', !!folder.collapsed);
               const btn = cardEl.querySelector('[data-toggle]');
@@ -1132,14 +957,10 @@
                 btn.setAttribute('aria-expanded', folder.collapsed ? 'false' : 'true');
                 btn.title = folder.collapsed ? 'Déplier' : 'Replier';
               }
-              const item = cardEl.closest('.grid-stack-item');
-              if (item) {
-                // La sous-grille est le .grid-stack suivant dans le widget.
-                const sub = item.querySelector(':scope > .grid-stack-item-content > .grid-stack.nested, :scope > .grid-stack-item-content .grid-stack.nested');
-                if (sub) sub.style.display = folder.collapsed ? 'none' : '';
-                item.classList.toggle('wrg-collapsed-sub', !!folder.collapsed);
-                // Tell GridStack to re-measure this item (content height changed).
-                if (gs && display.autoSizeCards) {
+              // Tell GridStack to re-measure this item (content height changed).
+              if (gs && display.autoSizeCards) {
+                const item = cardEl.closest('.grid-stack-item');
+                if (item) {
                   try { gs.resizeToContent(item); } catch (err) { /* ignore */ }
                 }
               }
@@ -1276,55 +1097,168 @@
     });
     dialog.addEventListener('click', (e) => { if (e.target === dialog) dialog.close(); });
 
-    // Drag & drop NATIF GridStack (exemple "Nested grids demo"):
-    // - cartes et dossiers se déplacent entre grille principale et sous-grilles,
-    // - palette -> grille via setupDragIn (voir rebuildGrid),
-    // - syncFromGrid() resync state.cards après chaque mouvement.
-    // Seul le drop "combiner" (palette -> SUR une carte = ajout source_fields)
-    // reste custom car GridStack ne sait pas faire ça.
+    // Drag & Drop logic - only in edit mode.
+    // Paths: top-level "i", folder child "i/j". Folders accept drops into children.
     if (!readOnly) {
-      let combineField = null; // fieldKey palette en cours de drag (pour combiner).
+      let dragged = null; // { f: fieldKey } from palette, or { p: cardPath } from grid.
+      let dragOverCard = null; // Path of card being hovered for drop target.
+
       document.addEventListener('dragstart', (e) => {
-        const chip = e.target.closest('.wrg-chip');
-        combineField = chip ? chip.dataset.field : null;
-      });
-      document.addEventListener('dragend', () => {
-        combineField = null;
-        document.querySelectorAll('.wrg-card').forEach((el) => el.classList.remove('wrg-drop-hover'));
-      });
-      grid.addEventListener('dragover', (e) => {
-        // Survol d'une carte DATA avec un champ palette => highlight "combiner".
-        const card = e.target.closest('.wrg-card');
-        document.querySelectorAll('.wrg-card').forEach((el) => el.classList.remove('wrg-drop-hover'));
-        if (combineField && card && !card.classList.contains('wrg-folder')) {
-          card.classList.add('wrg-drop-hover');
+      const chip = e.target.closest('.wrg-chip');
+      const card = e.target.closest('.wrg-card');
+      dragged = chip ? { f: chip.dataset.field } : card ? { p: String(card.dataset.i) } : null;
+      if (dragged) {
+        e.dataTransfer.setData('text/plain', 'x');
+        e.dataTransfer.effectAllowed = dragged.f ? 'copy' : 'move';
+      }
+    });
+
+    document.addEventListener('dragend', () => {
+      dragged = null;
+      dragOverCard = null;
+      document.querySelectorAll('.wrg-card').forEach(el => el.classList.remove('wrg-drop-hover', 'wrg-drop-hover-folder'));
+    });
+
+    grid.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = dragged?.f ? 'copy' : 'move';
+
+      // Highlight card under cursor as drop target.
+      const card = e.target.closest('.wrg-card');
+      if (card && (dragged?.f || dragged?.p)) {
+        const p = String(card.dataset.i);
+        if (dragOverCard !== p) {
+          document.querySelectorAll('.wrg-card').forEach(el => el.classList.remove('wrg-drop-hover', 'wrg-drop-hover-folder'));
+          const target = getCardByPath(p);
+          if (target && isFolder(target)) card.classList.add('wrg-drop-hover-folder');
+          else card.classList.add('wrg-drop-hover');
+          dragOverCard = p;
         }
-      });
-      grid.addEventListener('drop', (e) => {
-        // Drop palette SUR carte data => ajoute aux source_fields (composite).
-        // Sinon : GridStack gère (nouvelle carte / déplacement / sous-grille).
-        if (!combineField) return;
-        const cardEl = e.target.closest('.wrg-card');
-        if (!cardEl || cardEl.classList.contains('wrg-folder')) return;
-        const path = cardEl.dataset.i;
-        const target = getCardByPath(String(path));
-        const field = state.groups.flatMap((g) => g.fields).find((f) => f.key === combineField);
-        if (target && !isFolder(target) && field) {
-          e.preventDefault();
-          e.stopPropagation();
-          const sources = target.source_fields ? [...target.source_fields] : [target.field];
-          if (!sources.includes(combineField)) {
-            sources.push(combineField);
-            target.source_fields = sources;
-            target.mode = target.mode || 'union';
-            if (!target.label) target.label = sources.length === 2 ? `${field.label} + ...` : target.label;
-            render();
-            markDirty();
+      }
+      else {
+        document.querySelectorAll('.wrg-card').forEach(el => el.classList.remove('wrg-drop-hover', 'wrg-drop-hover-folder'));
+        dragOverCard = null;
+      }
+    });
+
+    grid.addEventListener('dragleave', (e) => {
+      // Only clear if leaving the grid entirely.
+      if (!e.currentTarget.contains(e.relatedTarget)) {
+        document.querySelectorAll('.wrg-card').forEach(el => el.classList.remove('wrg-drop-hover', 'wrg-drop-hover-folder'));
+        dragOverCard = null;
+      }
+    });
+
+    grid.addEventListener('drop', (e) => {
+      e.preventDefault();
+      if (!dragged) return;
+
+      // Drop onto a card (combine / into folder) vs drop onto empty space (new / reorder).
+      const targetCard = e.target.closest('.wrg-card');
+      const isOnCard = !!targetCard;
+      const targetPath = isOnCard ? String(targetCard.dataset.i) : null;
+
+      // Clear hover state.
+      document.querySelectorAll('.wrg-card').forEach(el => el.classList.remove('wrg-drop-hover', 'wrg-drop-hover-folder'));
+      dragOverCard = null;
+
+      const newDataCard = (fieldKey) => {
+        const field = state.groups.flatMap((g) => g.fields).find((f) => f.key === fieldKey);
+        if (!field) return null;
+        const agg = Object.keys(state.aggs[field.kind] || {})[0] || 'sum';
+        return { field: field.key, agg, w: field.kind === 'r' ? 2 : 1 };
+      };
+
+      if (dragged.f) {
+        // Dragging from palette (chip).
+        const field = state.groups.flatMap((g) => g.fields).find((f) => f.key === dragged.f);
+        if (!field) return;
+
+        if (isOnCard) {
+          const target = getCardByPath(targetPath);
+          if (target && isFolder(target)) {
+            // Drop ONTO folder → append as child (auto-expand).
+            const nc = newDataCard(dragged.f);
+            if (nc) {
+              target.children = target.children || [];
+              target.children.push(nc);
+              target.collapsed = false;
+            }
+          }
+          else if (target && !isFolder(target)) {
+            // Drop ONTO data card → add to its source_fields (create composite).
+            const sources = target.source_fields ? [...target.source_fields] : [target.field];
+            if (!sources.includes(dragged.f)) {
+              sources.push(dragged.f);
+              target.source_fields = sources;
+              target.mode = target.mode || 'union';
+              if (!target.label || target.label === field.label) {
+                target.label = sources.length === 2 ? `${field.label} + ...` : target.label;
+              }
+            }
           }
         }
-        combineField = null;
-      }, true);
-    } // End if (!readOnly) - Drag & Drop natif GridStack + combiner
+        else {
+          // Drop on empty space → create new simple card at top level.
+          const nc = newDataCard(dragged.f);
+          if (nc) state.cards.push(nc);
+        }
+      }
+      else if (dragged.p) {
+        // Dragging existing card → move (top-level reorder or into/out of folder).
+        const srcPath = String(dragged.p);
+        if (srcPath === targetPath) { dragged = null; return; }
+        const srcParts = srcPath.split('/').map(Number);
+        let moved = null;
+        if (srcParts.length === 2) {
+          const srcFolder = state.cards[srcParts[0]];
+          if (srcFolder && isFolder(srcFolder) && srcFolder.children) {
+            [moved] = srcFolder.children.splice(srcParts[1], 1);
+          }
+        } else {
+          [moved] = state.cards.splice(srcParts[0], 1);
+        }
+        if (!moved) { dragged = null; return; }
+        // Don't drop a folder into itself or into a folder child.
+        if (isFolder(moved) && targetPath && (targetPath === srcPath || targetPath.startsWith(srcPath + '/'))) {
+          // Restore.
+          if (srcParts.length === 2) state.cards[srcParts[0]].children.splice(srcParts[1], 0, moved);
+          else state.cards.splice(srcParts[0], 0, moved);
+          dragged = null;
+          return;
+        }
+        if (isOnCard) {
+          const target = getCardByPath(targetPath);
+          if (target && isFolder(target) && !isFolder(moved)) {
+            // Move data card INTO folder.
+            target.children = target.children || [];
+            target.children.push(moved);
+            target.collapsed = false;
+          }
+          else if (targetPath.includes('/')) {
+            // Move next to a folder child (same folder).
+            const [fi, ci] = targetPath.split('/').map(Number);
+            let at = ci;
+            if (srcParts.length === 2 && srcParts[0] === fi && srcParts[1] < ci) at = ci - 1;
+            state.cards[fi].children.splice(at, 0, moved);
+          }
+          else {
+            // Move to top level at target position.
+            let at = +targetPath;
+            if (srcParts.length === 1 && srcParts[0] < at) at = at - 1;
+            state.cards.splice(at, 0, moved);
+          }
+        }
+        else {
+          // Drop on empty space: child → back to top level; top-level → end.
+          state.cards.push(moved);
+        }
+      }
+      dragged = null;
+      render();
+      markDirty();
+    });
+    } // End if (!readOnly) - Drag & Drop logic
 
     // Export buttons work in both modes.
     root.querySelectorAll('[data-wrg-export]').forEach((a) => {

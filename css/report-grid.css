@@ -3,16 +3,8 @@
    depuis la page de réglages (webform_report_grid.settings). */
 .wrg{--wrg-bg:#f2f3ef;--wrg-sf:#fff;--wrg-tx:#1c2227;--wrg-mu:#66707a;--wrg-ln:#d9dcd5;--wrg-ac:#f0b800;--wrg-bl:#1f5fbf;--wrg-fs:.95rem;--wrg-gap:16px;font:400 var(--wrg-fs)/1.45 Barlow,system-ui,sans-serif;color:var(--wrg-tx)}
 
-/* Layout principal : palette fixe à gauche, grille à droite.
-   Pleine largeur : le module sort du conteneur étroit du thème
-   (page, sidebar...) pour utiliser toute la largeur viewport. */
-.wrg{width:100%;max-width:100%;box-sizing:border-box}
-.wrg-layout{display:grid;grid-template-columns:290px minmax(0,1fr);gap:20px;align-items:start;min-height:calc(100vh - 120px)}
-.wrg-main{min-width:0;max-width:100%}
-.wrg-grid{width:100%;max-width:100%}
-/* Casse le max-width hérité du thème (ex: .layout-container, main, article)
-   quand le report est affiché : pleine largeur viewport avec petit padding. */
-main:has(.wrg),.layout-container:has(.wrg),.page-content:has(.wrg),article:has(.wrg){max-width:none !important;width:100%}
+/* Layout principal : palette fixe à gauche, grille à droite. */
+.wrg-layout{display:grid;grid-template-columns:290px 1fr;gap:20px;align-items:start;min-height:calc(100vh - 120px)}
 /* Read-only mode: no palette, use full width for grid. */
 .wrg-read-only .wrg-layout{grid-template-columns:1fr}
 @media(max-width:820px){
@@ -29,29 +21,29 @@ main:has(.wrg),.layout-container:has(.wrg),.page-content:has(.wrg),article:has(.
 .wrg-chip:hover{border-color:var(--wrg-bl)}
 .wrg-chip i{font-style:normal;color:var(--wrg-mu);font-size:12px}
 
-/* Grille : 100% GridStack. AUCUNE règle de position/dimension ici —
-   colonnes, gap (margin), hauteur de ligne (cellHeight), placement,
-   drag, resize, responsive : tout est options GridStack dans report-grid.js.
-   Seul le min-height anti-collapse (grille vide) reste en CSS,
-   GridStack ne le faisant pas pour une grille sans widget. */
-.wrg-grid{min-height:120px;box-sizing:border-box}
-.wrg-grid.grid-stack .grid-stack-item{background:transparent}
-/* Le contenu carte remplit le widget : GridStack mesure .grid-stack-item-content
-   pour sizeToContent, donc la carte doit l'épouser sans forcer de hauteur. */
-.wrg-grid .grid-stack-item-content .wrg-card{margin:0;min-height:0}
-/* Taille fixe (réglage auto_size_cards décoché) : le contenu défile dans
-   la hauteur imposée par GridStack. */
-.wrg-fixed-size .grid-stack-item-content{overflow:hidden}
+/* Grille des cartes - GridStack container.
+   ATTENTION : ne jamais positionner ici. GridStack gère seul le placement
+   des .grid-stack-item (position absolue + dimensions calculées).
+   Notre CSS ne contrôle que le CONTENU des cartes (flex colonne interne). */
+.wrg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:var(--wrg-gap);min-height:400px;padding:8px;box-sizing:border-box}
+.wrg-grid.grid-stack{grid-template-columns:none;display:block} /* GridStack takes over */
+.wrg-grid.grid-stack .grid-stack-item{background:transparent !important}
+.wrg-grid .grid-stack-item-content .wrg-card{margin:0;display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
+/* Auto-size (défaut) : GridStack mesure le contenu et fixe la hauteur de
+   l'item — pas de scroll interne, tout le contenu s'affiche. Ne jamais
+   forcer height ni position ici : GridStack positionne les items en absolu. */
+/* Taille fixe (réglage auto_size_cards décoché) : hauteur GridStack, contenu défilant. */
+.wrg-fixed-size .grid-stack-item-content{overflow:hidden;height:100% !important}
 .wrg-fixed-size .wrg-card{overflow:hidden;height:100%}
 .wrg-fixed-size .wrg-names{overflow-y:auto}
+.wrg-fixed-size .wrg-folder-children{overflow-y:auto;max-height:100%}
 
 /* Empty state. */
 .wrg-empty{grid-column:1/-1;border:2px dashed var(--wrg-ln);border-radius:8px;padding:60px 20px;text-align:center;color:var(--wrg-mu);font-size:15px}
 
-/* Carte de base : VISUEL uniquement (couleurs, bordures, typo, espacements
-   internes). Dimensions et placement = GridStack. Pas de min-height imposé :
-   sizeToContent mesure le contenu réel. */
-.wrg-card{background:var(--wrg-sf);border:1px solid var(--wrg-ln);border-left:6px solid var(--wrg-ac);border-radius:8px;padding:12px 14px;box-sizing:border-box}
+/* Carte de base. */
+.wrg-card{background:var(--wrg-sf);border:1px solid var(--wrg-ln);border-left:6px solid var(--wrg-ac);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;cursor:grab;flex:1 1 auto;min-height:180px;box-sizing:border-box}
+.wrg-card.w2{grid-column:span 2}
 
 /* Composite (group) card: distinct visual. */
 .wrg-card.wrg-composite{border-left-color:var(--wrg-bl);background:linear-gradient(90deg, var(--wrg-sf) 96%, #e8f0fa 100%)}
@@ -79,12 +71,13 @@ main:has(.wrg),.layout-container:has(.wrg),.page-content:has(.wrg),article:has(.
 .wrg-vf-choice select{width:100%;padding:4px 8px;border:1px solid var(--wrg-ln);background:var(--wrg-bg);color:var(--wrg-tx);border-radius:4px;font:inherit;font-size:12px;min-height:28px}
 .wrg-vf-choice select:focus{outline:2px solid var(--wrg-bl);border-color:var(--wrg-bl)}
 
-/* Card body - results : flux normal, aucune contrainte de taille.
-   En mode fixe : scroll interne. */
-.wrg-big{font-size:48px;font-weight:700;line-height:1}
+/* Card body - results.
+   En mode auto (.wrg-grid sans .wrg-fixed-size) : aucun plafond interne —
+   la carte grandit pour tout afficher, GridStack mesure la vraie hauteur.
+   En mode fixe : plafonds + scroll interne. */
+.wrg-big{font-size:48px;font-weight:700;line-height:1;display:flex;align-items:baseline;gap:6px;flex-shrink:0}
 .wrg-big small{font-size:13px;color:var(--wrg-mu);font-weight:400}
-.wrg-names{margin-top:6px}
-.wrg-names .wrg-nm,.wrg-names span{display:inline-block;margin:0 4px 4px 0}
+.wrg-names{display:flex;flex-wrap:wrap;gap:4px;flex:1 1 auto;padding-right:4px}
 .wrg-fixed-size .wrg-names{overflow-y:auto;max-height:120px}
 .wrg-names span,.wrg-nm{background:var(--wrg-bg);border:1px solid var(--wrg-ln);border-radius:12px;padding:2px 10px;font-size:12px;color:var(--wrg-tx);white-space:nowrap}
 .wrg-nm{cursor:pointer;font-family:inherit;transition:border-color .15s}
@@ -137,10 +130,9 @@ main:has(.wrg),.layout-container:has(.wrg),.page-content:has(.wrg),article:has(.
 .wrg-switch-row label{display:flex;flex-direction:column;gap:4px;font-weight:600;font-size:13px}
 .wrg-switch-row select{min-width:280px;padding:6px 10px;border:1px solid var(--wrg-ln);background:var(--wrg-sf);color:var(--wrg-tx);border-radius:5px;font:inherit;font-size:13px}
 
-/* Responsive adjustments : typo uniquement, jamais de dimensions
-   (colonnes responsives = columnOpts GridStack). */
+/* Responsive adjustments. */
 @media(max-width:600px){
-  .wrg-card{padding:10px 12px}
+  .wrg-card{padding:10px 12px;min-height:160px}
   .wrg-big{font-size:36px}
   .wrg-bar{grid-template-columns:100px 1fr 24px;font-size:11px}
   .wrg-tools select{min-width:100px}
@@ -170,29 +162,22 @@ main:has(.wrg),.layout-container:has(.wrg),.page-content:has(.wrg),article:has(.
   .wrg-detail-summary .wrg-big{font-size:32px}
 }
 
-/* Folder (container) cards: real GridStack sub-grids (nested grids demo).
-   Le widget parent contient le head (titre); les enfants sont dans
-   .grid-stack.nested qui suit. */
+/* Folder (container) cards: group other cards, collapsible. */
 .wrg-card.wrg-folder{border-left-color:#6a4fb3;background:linear-gradient(90deg,var(--wrg-sf) 96%,#efeafa 100%);cursor:default}
 .wrg-folder-head{display:flex;align-items:center;gap:8px}
 .wrg-folder-toggle{border:1px solid var(--wrg-ln);background:var(--wrg-bg);color:var(--wrg-tx);border-radius:5px;font:inherit;font-size:13px;line-height:1;padding:4px 9px;cursor:pointer;flex-shrink:0}
 .wrg-folder-toggle:hover{border-color:#6a4fb3}
-.wrg-folder-head .wrg-t{flex:1 1 auto;min-width:0}
+.wrg-folder-head .wrg-t{flex:1 1 auto}
 .wrg-folder-count{font-size:12px;color:var(--wrg-mu);background:var(--wrg-bg);border:1px solid var(--wrg-ln);border-radius:10px;padding:1px 9px;white-space:nowrap;flex-shrink:0}
-/* Sous-grille du dossier : VISUEL uniquement (fond, highlight drop).
-   Dimensions, colonnes, gap = GridStack (subGridOpts). min-height anti-collapse
-   pour pouvoir dropper dans un dossier vide. */
-.grid-stack.nested{border:1px dashed transparent;border-radius:6px;background:rgba(106,79,179,.04)}
-.grid-stack.nested.ui-droppable-over,.grid-stack.nested.grid-stack-over{border-color:#6a4fb3;background:#f4f0fd}
-/* Dossier replié : masque la sous-grille. */
-.grid-stack-item.wrg-collapsed-sub > .grid-stack.nested{display:none}
-/* Legacy fallback (sans GridStack) : enfants en flux simple. */
-.wrg-folder-children{margin-top:4px;border:1px dashed transparent;border-radius:6px;padding:4px}
-.wrg-folder-empty{text-align:center;color:var(--wrg-mu);font-size:12px;font-style:italic;padding:14px 8px;border:1px dashed var(--wrg-ln);border-radius:6px}
+.wrg-folder-children{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(220px,100%),1fr));gap:calc(var(--wrg-gap) * .625);margin-top:4px;min-height:60px;border:1px dashed transparent;border-radius:6px;padding:4px;transition:border-color .15s,background .15s}
+.wrg-folder-children .wrg-card{min-height:140px}
+.wrg-folder-empty{grid-column:1/-1;text-align:center;color:var(--wrg-mu);font-size:12px;font-style:italic;padding:14px 8px;border:1px dashed var(--wrg-ln);border-radius:6px}
 .wrg-card.wrg-collapsed .wrg-folder-children{display:none}
-/* Highlight "combiner" (palette -> sur carte data). */
-.wrg-card.wrg-drop-hover{box-shadow:0 0 0 2px #2a7f4d}
-/* Child wrapper + up/down order controls (edit mode, fallback legacy). */
+.wrg-card.wrg-drop-hover-folder{box-shadow:0 0 0 2px #6a4fb3}
+.wrg-card.wrg-drop-hover-folder .wrg-folder-children{border-color:#6a4fb3;background:#f4f0fd}
+/* Child wrapper + up/down order controls (edit mode only). */
+.wrg-folder-kid{position:relative}
+.wrg-kid-order{position:absolute;top:4px;right:4px;z-index:2;display:flex;gap:2px}
 .wrg-kid-order button{border:1px solid var(--wrg-ln);background:var(--wrg-bg);color:var(--wrg-tx);border-radius:4px;font-size:11px;line-height:1;padding:3px 6px;cursor:pointer;opacity:.55}
 .wrg-kid-order button:hover:not(:disabled){opacity:1;border-color:#6a4fb3}
 .wrg-kid-order button:disabled{opacity:.2;cursor:default}
@@ -201,3 +186,6 @@ main:has(.wrg),.layout-container:has(.wrg),.page-content:has(.wrg),article:has(.
 /* Toolbar: add-folder button. */
 .wrg-add-folder{border:1px dashed #6a4fb3;background:transparent;color:#6a4fb3;border-radius:5px;padding:4px 10px;font:inherit;font-size:12px;cursor:pointer}
 .wrg-add-folder:hover{background:#efeafa}
+@media(max-width:600px){
+  .wrg-folder-children{grid-template-columns:1fr}
+}
