@@ -710,29 +710,25 @@
 
         try {
           gs.removeAll(false);
+          // Add widgets top-down (sorted by saved y, then x) so that with
+          // float:false GridStack has no hole to compact and honours the
+          // saved gs-y positions. gs-id / data-gs-index stay equal to the
+          // index in state.cards (stable identifier), only the DOM creation
+          // order changes.
           const items = grid.querySelectorAll('.grid-stack-item');
-          items.forEach((el, i) => {
-            const c = state.cards[i];
-            const w = Math.min(gridColumns, Math.max(1, c.w || 1));
-            gs.makeWidget(el, {
-              x: Number.isInteger(c.x) ? c.x : 0,
-              y: Number.isInteger(c.y) ? c.y : 0,
-              w: w,
-              h: autoSize ? undefined : (c.h || 2),
-              minH: autoSize ? 1 : (c.min_h || 1),
-              maxH: autoSize ? Infinity : (c.max_h || 5),
-            });
+          const sorted = Array.from(items).sort((a, b) => {
+            const ia = parseInt(a.dataset.gsIndex, 10);
+            const ib = parseInt(b.dataset.gsIndex, 10);
+            const ca = state.cards[ia] || {};
+            const cb = state.cards[ib] || {};
+            const ya = Number.isInteger(ca.y) ? ca.y : 9999;
+            const yb = Number.isInteger(cb.y) ? cb.y : 9999;
+            if (ya !== yb) return ya - yb;
+            const xa = Number.isInteger(ca.x) ? ca.x : 0;
+            const xb = Number.isInteger(cb.x) ? cb.x : 0;
+            return xa - xb;
           });
-          // With float:false GridStack compacts widgets upward on makeWidget,
-          // ignoring the saved gs-y. Force the saved x/y positions back so the
-          // build order is honoured. gs.move triggers 'change', which syncs
-          // state.cards via the on('change') handler.
-          items.forEach((el, i) => {
-            const c = state.cards[i];
-            if (Number.isInteger(c.x) && Number.isInteger(c.y)) {
-              try { gs.move(el, c.x, c.y); } catch (e) { /* ignore */ }
-            }
-          });
+          sorted.forEach((el) => gs.makeWidget(el));
           // Auto-size: measure content AFTER layout. GridStack only auto-measures
           // on add/resize events, not on innerHTML re-render, so we call
           // resizeToContent explicitly once the browser has laid out the DOM.
