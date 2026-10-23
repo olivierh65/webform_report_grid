@@ -367,9 +367,14 @@
             },
           }, grid);
           gs.on('change', () => {
-            // GridStack owns positions (x/y). We only persist DIMENSIONS (w/h)
-            // and the visual order. Never write x/y ourselves.
-            const order = [];
+            // GridStack owns positions (x/y). We persist w/h and coordinates
+            // for each card identified by its stable data-gs-index (== its index
+            // in state.cards). We deliberately do NOT reorder state.cards here:
+            // doing so without re-rendering would desynchronize data-gs-index
+            // (the DOM) from state.cards indices, causing drops into the wrong
+            // folder and wrong x/y restored on save. The visual order is
+            // carried by card.x/card.y (re-applied as gs-x/gs-y in render()),
+            // not by the array order.
             grid.querySelectorAll('.grid-stack-item').forEach((el) => {
               // Top-level only: data-gs-index is the source of truth.
               const rawIdx = el.dataset.gsIndex ?? el.querySelector(':scope > .grid-stack-item-content > .wrg-card')?.dataset.i;
@@ -379,17 +384,17 @@
                 // Clamp to the current grid column count (responsive may shrink it).
                 const w = Math.min(gridColumns, Math.max(1, +(el.dataset.gsW || card.w || 1)));
                 const h = +(el.dataset.gsH || card.h || 2);
-                if (w !== card.w || h !== card.h) {
+                const x = +(el.dataset.gsX || 0);
+                const y = +(el.dataset.gsY || 0);
+                if (w !== card.w || h !== card.h || x !== card.x || y !== card.y) {
                   card.w = w;
                   card.h = h;
+                  card.x = x;
+                  card.y = y;
                   markDirty();
                 }
-                order.push({ card, x: +(el.dataset.gsX || 0), y: +(el.dataset.gsY || 0) });
               }
             });
-            order.sort((a, b) => a.y - b.y || a.x - b.x);
-            const ids = order.map((o) => state.cards.indexOf(o.card));
-            if (ids.length === state.cards.length) state.cards = ids.map((k) => state.cards[k]);
           });
         } catch (e) {
           console.error('GridStack init failed:', e);
