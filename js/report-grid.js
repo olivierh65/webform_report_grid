@@ -1209,7 +1209,23 @@
 
         if (isOnCard) {
           const target = getCardByPath(targetPath);
-          if (target && isFolder(target)) {
+          // Dropping onto a child card ("i/j") or anywhere inside a folder
+          // must add a NEW child to that folder — not merge into the child.
+          // Only a drop onto a top-level data card ("i") creates a composite.
+          const folderEl = targetCard.closest('[data-folder-children]');
+          const folderPath = folderEl ? String(folderEl.dataset.folderChildren) : null;
+          const folder = folderPath ? getCardByPath(folderPath) : null;
+          if (folder && isFolder(folder)) {
+            // Drop ONTO folder (header, empty zone or one of its children)
+            // → append as child (auto-expand).
+            const nc = newDataCard(dragged.f);
+            if (nc) {
+              folder.children = folder.children || [];
+              folder.children.push(nc);
+              folder.collapsed = false;
+            }
+          }
+          else if (target && isFolder(target)) {
             // Drop ONTO folder → append as child (auto-expand).
             const nc = newDataCard(dragged.f);
             if (nc) {
