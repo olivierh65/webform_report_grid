@@ -393,14 +393,16 @@
             animate: true,
             // Auto-size: cards grow to show all content; else fixed height set at creation.
             sizeToContent: autoSize,
-            draggable: {
+            // Front (read-only): no reorder, no resize — static layout.
+            staticGrid: readOnly,
+            draggable: readOnly ? false : {
               handle: '.wrg-card',
               // Don't start a drag when interacting with controls inside cards
               // (folder toggle, buttons, selects, editable labels...).
               cancel: 'button, select, input, textarea, a, [contenteditable="true"], dialog, .wrg-names',
               scroll: true,
             },
-            resizable: {
+            resizable: readOnly ? false : {
               handles: 'se',
               autoHide: true,
               minHeight: 120, // Minimum 1 row
@@ -408,6 +410,13 @@
               maxHeight: autoSize ? 4000 : 600,
             },
           }, grid);
+          // Front (read-only): hard-lock via API too — staticGrid at init
+          // alone doesn't always stick for widgets added later via makeWidget.
+          if (readOnly) {
+            try { gs.setStatic(true); } catch (e) { /* ignore */ }
+            try { gs.disableDrag(); } catch (e) { /* ignore */ }
+            try { gs.disableResize(); } catch (e) { /* ignore */ }
+          }
           gs.on('change', () => {
             // GridStack owns positions (x/y). We persist w/h and coordinates
             // for each card identified by its stable data-gs-index (== its index
@@ -534,7 +543,7 @@
         ? `<div class="wrg-g">${esc(groupLabel)}</div>`
         : `<div class="wrg-g" contenteditable="true" data-group-label="${path}">${esc(groupLabel)}</div>`;
 
-      return `<article class="wrg-card${isComposite ? ' wrg-composite' : ''}" draggable="true" data-i="${path}" data-drop-target="true">
+      return `<article class="wrg-card${isComposite ? ' wrg-composite' : ''}"${readOnly ? '' : ' draggable="true"'} data-i="${path}" data-drop-target="true">
         <div class="wrg-top">
           <div>
             ${labelHtml}
@@ -578,7 +587,7 @@
           <button data-w="${path}" title="Élargir ou réduire" aria-label="Élargir ou réduire">↔</button>
           <button data-x="${path}" title="Retirer le dossier" aria-label="Retirer le dossier">✕</button>
         </div>`;
-      return `<article class="wrg-card wrg-folder${collapsed ? ' wrg-collapsed' : ''}" draggable="true" data-i="${path}" data-folder="${path}" data-drop-target="true">
+      return `<article class="wrg-card wrg-folder${collapsed ? ' wrg-collapsed' : ''}"${readOnly ? '' : ' draggable="true"'} data-i="${path}" data-folder="${path}" data-drop-target="true">
         <div class="wrg-folder-head">
           <button class="wrg-folder-toggle" data-toggle="${path}" aria-expanded="${collapsed ? 'false' : 'true'}" title="${collapsed ? 'Déplier' : 'Replier'}">${collapsed ? '▶' : '▼'}</button>
           ${labelHtml}
@@ -719,7 +728,7 @@
         ? `<div class="wrg-g">${esc(groupLabel)}</div>`
         : `<div class="wrg-g" contenteditable="true" data-group-label="${path}">${esc(groupLabel)}</div>`;
 
-      return `<article class="wrg-card wrg-composite wrg-detail-mode" draggable="true" data-i="${path}" data-drop-target="true">
+      return `<article class="wrg-card wrg-composite wrg-detail-mode"${readOnly ? '' : ' draggable="true"'} data-i="${path}" data-drop-target="true">
         <div class="wrg-top">
           <div>
             ${labelHtml}
@@ -786,6 +795,13 @@
             return xa - xb;
           });
           sorted.forEach((el) => gs.makeWidget(el));
+          // Re-assert static lock after (re)adding widgets: makeWidget can
+          // re-enable dragging on the new nodes even with staticGrid at init.
+          if (readOnly) {
+            try { gs.setStatic(true); } catch (e) { /* ignore */ }
+            try { gs.disableDrag(); } catch (e) { /* ignore */ }
+            try { gs.disableResize(); } catch (e) { /* ignore */ }
+          }
           // Auto-size: measure content AFTER layout. GridStack only auto-measures
           // on add/resize events, not on innerHTML re-render, so we call
           // resizeToContent explicitly once the browser has laid out the DOM.

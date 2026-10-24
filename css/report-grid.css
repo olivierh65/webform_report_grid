@@ -183,6 +183,9 @@
 .wrg-kid-order button:disabled{opacity:.2;cursor:default}
 /* In edit mode the folder itself is draggable via its header. */
 .wrg-folder-head{cursor:grab}
+/* Front (read-only): no drag affordance at all. */
+.wrg-readonly .wrg-card,.wrg-readonly .wrg-folder-head{cursor:default}
+.wrg-readonly .grid-stack-item{touch-action:auto}
 /* Toolbar: add-folder button. */
 .wrg-add-folder{border:1px dashed #6a4fb3;background:transparent;color:#6a4fb3;border-radius:5px;padding:4px 10px;font:inherit;font-size:12px;cursor:pointer}
 .wrg-add-folder:hover{background:#efeafa}
