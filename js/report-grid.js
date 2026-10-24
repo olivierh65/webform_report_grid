@@ -284,6 +284,14 @@
     let lastList = null;
     const nameOf = (gi) => { const r = state.rows[gi]; return r ? r.n : '?'; };
     const personBtn = (gi, mult) => `<button class="wrg-nm" data-p="${gi}">${esc(nameOf(gi))}${mult > 1 ? ' ×' + mult : ''}</button>`;
+    // Distinct persons + total responses for a rep breakdown (respects filters:
+    // calc() already drops FILTERED_OUT values from rep/gp).
+    const repTotals = (x) => {
+      const allGis = [...new Set(Object.values((x && x.gp) || {}).flat())];
+      const responses = Object.values((x && x.rep) || {}).reduce((a, n) => a + (+n || 0), 0);
+      return { allGis, distinct: allGis.length, responses };
+    };
+    const pluralPersonnes = (n) => 'personne' + (n > 1 ? 's' : '');
 
     // ---- Folder helpers (paths "i" top-level, "i/j" child of folder i) ----
     const isFolder = (c) => !!c && c.type === 'folder';
@@ -303,6 +311,40 @@
         return (f && isFolder(f)) ? f : null;
       }
       return null;
+    };
+    // Effective aggregation kind of a card, mirroring PHP sanitizeCard():
+    // composite in union mode acts as choice ('r'), in sum mode as number
+    // ('n'); otherwise the kind of its first source field.
+    const fieldKindOf = (key) => {
+      const f = state.groups.flatMap((g) => g.fields).find((fl) => fl.key === key);
+      return f ? (f.kind || 'b') : null;
+    };
+    const effectiveKindOf = (card) => {
+      const sources = card.source_fields && card.source_fields.length
+        ? card.source_fields
+        : (card.field ? [card.field] : []);
+      const kind = fieldKindOf(sources[0]) || 'b';
+      if (sources.length > 1) {
+        if ((card.mode || 'union') === 'union') return 'r';
+        if (card.mode === 'sum') return 'n';
+      }
+      return kind;
+    };
+    // If card.agg is not valid for its effective kind (e.g. 'sum' kept
+    // after merging into a union composite which requires 'rep'),
+    // reset it to the first valid aggregation. Without this, PHP
+    // sanitizeCard() silently drops the card on save → empty folder
+    // after reload. Returns true when a fix was applied.
+    const ensureValidAgg = (card) => {
+      if (!card || isFolder(card)) return false;
+      const kind = effectiveKindOf(card);
+      const valid = Object.keys(state.aggs[kind] || {});
+      if (!valid.length) return false;
+      if (!valid.includes(card.agg)) {
+        card.agg = valid[0];
+        return true;
+      }
+      return false;
     };
     const multOf = (gi, card) => {
       const r = state.rows[gi];
@@ -443,7 +485,12 @@
       if (x.rep) {
         const mx = Math.max(1, ...Object.values(x.rep));
         const optLabel = (k) => (f.options && f.options[k] !== undefined ? String(f.options[k]).split('--')[0].trim() : (k === '—' ? 'Non renseigné' : k));
-        body = Object.entries(x.rep).map(([k, n]) => `<div class="wrg-bar"><span>${esc(optLabel(k))}</span><div style="width:${100 * n / mx}%"></div><b>${n}</b></div>`).join('')
+        const { allGis, distinct } = repTotals(x);
+        const shownGis = allGis.slice(0, 5);
+        const extraGis = distinct - shownGis.length;
+        body = `<div class="wrg-big">${distinct}<small>${esc(pluralPersonnes(distinct))}</small></div>`
+          + Object.entries(x.rep).map(([k, n]) => `<div class="wrg-bar"><span>${esc(optLabel(k))}</span><div style="width:${100 * n / mx}%"></div><b>${n}</b></div>`).join('')
+          + `<div class="wrg-names">${shownGis.map((gi) => personBtn(gi, multOf(gi, c))).join('') || '<span class="wrg-none">Personne pour l\'instant</span>'}${extraGis > 0 ? `<span>+${extraGis}</span>` : ''}</div>`
           + `<button class="wrg-more" data-l="${path}">Voir qui a répondu quoi</button>`;
       } else {
         const unit = x.val[1] || (c.agg === 'sum' && f.kind === 'b' ? 'personne' + (x.val[0] > 1 ? 's' : '') : '');
@@ -583,7 +630,12 @@
         if (x.rep) {
           const mx = Math.max(1, ...Object.values(x.rep));
           const optLabel = (k) => (field.options && field.options[k] !== undefined ? String(field.options[k]).split('--')[0].trim() : (k === '—' ? 'Non renseigné' : k));
-          body = Object.entries(x.rep).map(([k, n]) => `<div class="wrg-bar"><span>${esc(optLabel(k))}</span><div style="width:${100 * n / mx}%"></div><b>${n}</b></div>`).join('')
+          const { allGis, distinct } = repTotals(x);
+          const shownGis = allGis.slice(0, 5);
+          const extraGis = distinct - shownGis.length;
+          body = `<div class="wrg-big">${distinct}<small>${esc(pluralPersonnes(distinct))}</small></div>`
+            + Object.entries(x.rep).map(([k, n]) => `<div class="wrg-bar"><span>${esc(optLabel(k))}</span><div style="width:${100 * n / mx}%"></div><b>${n}</b></div>`).join('')
+            + `<div class="wrg-names">${shownGis.map((gi) => personBtn(gi, multOf(gi, tempCard))).join('') || '<span class="wrg-none">Personne pour l\'instant</span>'}${extraGis > 0 ? `<span>+${extraGis}</span>` : ''}</div>`
             + `<button class="wrg-more" data-l="${path}" data-src="${srcIdx}">Voir qui</button>`;
         } else {
           const unit = x.val[1] || (c.agg === 'sum' && field.kind === 'b' ? 'personne' + (x.val[0] > 1 ? 's' : '') : '');
@@ -625,10 +677,15 @@
       if (xSummary.rep) {
         const mx = Math.max(1, ...Object.values(xSummary.rep));
         const optLabel = (k) => (f.options && f.options[k] !== undefined ? String(f.options[k]).split('--')[0].trim() : (k === '—' ? 'Non renseigné' : k));
+        const { allGis, distinct } = repTotals(xSummary);
+        const shownGis = allGis.slice(0, 5);
+        const extraGis = distinct - shownGis.length;
         summaryHtml = `<div class="wrg-detail-summary">
           ${summaryTitleHtml}
+          <div class="wrg-big">${distinct}<small>${esc(pluralPersonnes(distinct))}</small></div>
           ${Object.entries(xSummary.rep).map(([k, n]) => `<div class="wrg-bar"><span>${esc(optLabel(k))}</span><div style="width:${100 * n / mx}%"></div><b>${n}</b></div>`).join('')}
-          ${xSummary.gp ? `<button class="wrg-more" data-l="${path}">Voir tous les noms (${Object.values(xSummary.gp).flat().length})</button>` : ''}
+          <div class="wrg-names">${shownGis.map((gi) => personBtn(gi, multOf(gi, summaryCard))).join('') || '<span class="wrg-none">Personne</span>'}${extraGis > 0 ? `<span>+${extraGis}</span>` : ''}</div>
+          ${xSummary.gp ? `<button class="wrg-more" data-l="${path}">Voir tous les noms (${distinct})</button>` : ''}
         </div>`;
       } else {
         const unit = xSummary.val[1] || (c.agg === 'sum' && f.kind === 'b' ? 'personne' + (xSummary.val[0] > 1 ? 's' : '') : '');
@@ -840,23 +897,33 @@
       if (!dialog.open) dialog.showModal();
     }
 
-    function showCardList(path) {
+    function showCardList(path, srcIdx) {
       path = String(path);
       const c = getCardByPath(path);
       if (!c || isFolder(c)) return;
       const rows = filteredRows();
-      const x = calc(c, rows);
-      const f = x.field || { label: c.field, group: '' };
-      lastList = { type: 'card', index: path };
+      // Detail mode: a section button carries data-src="srcIdx" → show only
+      // that source field's breakdown (same temp card as the section render).
+      let card = c;
+      if (srcIdx !== undefined && srcIdx !== null && srcIdx !== '') {
+        const src = c.source_fields ? c.source_fields[+srcIdx] : null;
+        if (src) {
+          const valueFilters = c.value_filters || {};
+          card = { ...c, field: src, source_fields: [src], value_filter: valueFilters[src] || [] };
+        }
+      }
+      const x = calc(card, rows);
+      const f = x.field || { label: card.field, group: '' };
+      lastList = { type: 'card', index: path, srcIdx };
       const sub = `${esc(f.group || '')}${state.filter && state.filterLabel ? ' · ' + esc(state.filterLabel) : ''} · cliquez un nom pour voir ses choix`;
       let body;
       if (x.rep) {
         const optLabel = (k) => (f.options && f.options[k] !== undefined ? String(f.options[k]).split('--')[0].trim() : (k === '—' ? 'Non renseigné' : k));
         body = Object.entries(x.gp).map(([k, gis]) => `<h3>${esc(optLabel(k))} (${gis.length})</h3><div class="wrg-names">${gis.map((gi) => personBtn(gi, 0)).join('')}</div>`).join('');
       } else {
-        body = `<div class="wrg-names">${x.who.map((gi) => personBtn(gi, multOf(gi, c))).join('')}</div>`;
+        body = `<div class="wrg-names">${x.who.map((gi) => personBtn(gi, multOf(gi, card))).join('')}</div>`;
       }
-      openDialog(esc(c.label || f.label), `<p class="wrg-g">${sub}</p>` + body);
+      openDialog(esc(card.label || c.label || f.label), `<p class="wrg-g">${sub}</p>` + body);
     }
 
     async function showAllPersons() {
@@ -900,7 +967,7 @@
     if (grid) {
       grid.addEventListener('change', (e) => {
       if (e.target.dataset.agg !== undefined) { const p = String(e.target.dataset.agg); const card = getCardByPath(p); if (card) { card.agg = e.target.value; updateCard(p); markDirty(); } }
-      else if (e.target.dataset.mode !== undefined) { const p = String(e.target.dataset.mode); const card = getCardByPath(p); if (card) { card.mode = e.target.value; updateCard(p); markDirty(); } }
+      else if (e.target.dataset.mode !== undefined) { const p = String(e.target.dataset.mode); const card = getCardByPath(p); if (card) { card.mode = e.target.value; ensureValidAgg(card); updateCard(p); markDirty(); } }
       else if (e.target.dataset.displayMode !== undefined) { const p = String(e.target.dataset.displayMode); const card = getCardByPath(p); if (card) { card.display_mode = e.target.value; if (e.target.value !== 'detail') { delete card.value_filters; } updateCard(p); markDirty(); } }
       else if (e.target.dataset.vfVal !== undefined) {
         // Boolean checkbox filter (card-level or detail mode).
@@ -1121,9 +1188,9 @@
       const t = e.target.closest('[data-p],[data-l],[data-close],[data-back]');
       if (!t || !root.contains(t)) return;
       if (t.dataset.p !== undefined) showPerson(+t.dataset.p);
-      else if (t.dataset.l !== undefined) showCardList(String(t.dataset.l));
+      else if (t.dataset.l !== undefined) showCardList(String(t.dataset.l), t.dataset.src);
       else if (t.dataset.back !== undefined) {
-        if (lastList && lastList.type === 'card') showCardList(lastList.index);
+        if (lastList && lastList.type === 'card') showCardList(lastList.index, lastList.srcIdx);
         else showAllPersons();
       }
       else dialog.close();
@@ -1152,25 +1219,76 @@
       document.querySelectorAll('.wrg-card').forEach(el => el.classList.remove('wrg-drop-hover', 'wrg-drop-hover-folder'));
     });
 
+    // Geometric hit-test: which card is REALLY under the pointer?
+    // During a GridStack-managed drag (placeholder insertion, compaction,
+    // overlapping absolutely-positioned widgets) e.target can belong to a
+    // different folder than the one visually hovered (typically the first
+    // one, "lundi", instead of "dimanche"). So instead of trusting
+    // e.target.closest(...), we compare the pointer coordinates against
+    // the on-screen rectangles of every card and pick the SMALLEST
+    // containing card (a child card "i/j" wins over its parent folder "i").
+    // Returns { path, kind } where kind is 'child' | 'folder' | 'card',
+    // or null when the pointer is over empty space.
+    function hitTestDrop(x, y) {
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+      let best = null;
+      grid.querySelectorAll('.wrg-card[data-i]').forEach((el) => {
+        const r = el.getBoundingClientRect();
+        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+          const path = String(el.dataset.i);
+          const area = Math.max(1, r.width) * Math.max(1, r.height);
+          if (!best || area < best.area) best = { path, area, el };
+        }
+      });
+      if (!best) return null;
+      const card = getCardByPath(best.path);
+      if (!card) return null;
+      if (isFolder(card)) return { path: best.path.split('/')[0], kind: 'folder', el: best.el };
+      return { path: best.path, kind: best.path.includes('/') ? 'child' : 'card', el: best.el };
+    }
+
+    // Resolve the owning top-level folder for a drop that is NOT on a
+    // data card (folder header, empty zone, gaps). Geometry first, DOM
+    // ancestry as fallback. Returns the folder path ("i") or null.
+    function resolveDropFolder(target, x, y) {
+      const hit = hitTestDrop(x, y);
+      if (hit && hit.kind === 'folder') return hit.path;
+      if (target && target.closest) {
+        const zone = target.closest('[data-folder-children]');
+        if (zone && zone.dataset.folderChildren !== undefined) {
+          const p = String(zone.dataset.folderChildren).split('/')[0];
+          const folder = getCardByPath(p);
+          if (folder && isFolder(folder)) return p;
+        }
+        const card = target.closest('.wrg-card');
+        if (card && card.dataset.i !== undefined) {
+          const p = String(card.dataset.i).split('/')[0];
+          const folder = getCardByPath(p);
+          if (folder && isFolder(folder)) return p;
+        }
+      }
+      return null;
+    }
+
     grid.addEventListener('dragover', (e) => {
       e.preventDefault();
       e.dataTransfer.dropEffect = dragged?.f ? 'copy' : 'move';
 
-      // Highlight card under cursor as drop target.
-      const card = e.target.closest('.wrg-card');
-      if (card && (dragged?.f || dragged?.p)) {
-        const p = String(card.dataset.i);
-        if (dragOverCard !== p) {
-          document.querySelectorAll('.wrg-card').forEach(el => el.classList.remove('wrg-drop-hover', 'wrg-drop-hover-folder'));
-          const target = getCardByPath(p);
-          if (target && isFolder(target)) card.classList.add('wrg-drop-hover-folder');
-          else card.classList.add('wrg-drop-hover');
-          dragOverCard = p;
-        }
-      }
-      else {
+      // Highlight the effective drop target (geometry-based).
+      const hit = (dragged?.f || dragged?.p) ? hitTestDrop(e.clientX, e.clientY) : null;
+      const key = hit ? `${hit.kind}:${hit.path}` : 'none';
+      if (key !== dragOverCard) {
         document.querySelectorAll('.wrg-card').forEach(el => el.classList.remove('wrg-drop-hover', 'wrg-drop-hover-folder'));
-        dragOverCard = null;
+        if (hit) {
+          if (hit.kind === 'folder') {
+            const folderCard = grid.querySelector(`.wrg-card[data-i="${CSS.escape(hit.path)}"]`);
+            (folderCard || hit.el).classList.add('wrg-drop-hover-folder');
+          }
+          else {
+            hit.el.classList.add('wrg-drop-hover');
+          }
+        }
+        dragOverCard = key;
       }
     });
 
@@ -1186,10 +1304,18 @@
       e.preventDefault();
       if (!dragged) return;
 
-      // Drop onto a card (combine / into folder) vs drop onto empty space (new / reorder).
-      const targetCard = e.target.closest('.wrg-card');
-      const isOnCard = !!targetCard;
-      const targetPath = isOnCard ? String(targetCard.dataset.i) : null;
+      // Drop resolution is GEOMETRY-based (see hitTestDrop): the pointer
+      // coordinates decide which card is really hovered, not e.target
+      // (unreliable during a GridStack drag: overlapping widgets,
+      // placeholder insertion).
+      // Rules:
+      // - drop ON a data card (top-level "i" or child "i/j") → MERGE into
+      //   that card (regroupement: add to source_fields = composite).
+      // - drop ON a folder header / empty zone → APPEND a new child.
+      // - drop on empty space → new top-level card (palette) / reorder.
+      const hit = hitTestDrop(e.clientX, e.clientY);
+      const targetPath = hit ? hit.path : null;
+      const isOnCard = !!hit;
 
       // Clear hover state.
       document.querySelectorAll('.wrg-card').forEach(el => el.classList.remove('wrg-drop-hover', 'wrg-drop-hover-folder'));
@@ -1202,48 +1328,43 @@
         return { field: field.key, agg, w: field.kind === 'r' ? 2 : 1 };
       };
 
+      // Merge a palette field into an existing data card (regroupement).
+      const mergeInto = (card, fieldKey, fieldLabel) => {
+        if (!card || isFolder(card)) return false;
+        const sources = card.source_fields ? [...card.source_fields] : [card.field];
+        if (sources.includes(fieldKey)) return true;
+        sources.push(fieldKey);
+        card.source_fields = sources;
+        card.mode = card.mode || 'union';
+        // The effective kind may have changed (e.g. union composite acts
+        // as choice 'r'): fix the aggregation now, otherwise the card is
+        // silently dropped by PHP sanitizeCard() on save.
+        ensureValidAgg(card);
+        if (!card.label || card.label === fieldLabel) {
+          card.label = sources.length === 2 ? `${fieldLabel} + ...` : card.label;
+        }
+        return true;
+      };
+
       if (dragged.f) {
         // Dragging from palette (chip).
         const field = state.groups.flatMap((g) => g.fields).find((f) => f.key === dragged.f);
         if (!field) return;
 
-        if (isOnCard) {
-          const target = getCardByPath(targetPath);
-          // Dropping onto a child card ("i/j") or anywhere inside a folder
-          // must add a NEW child to that folder — not merge into the child.
-          // Only a drop onto a top-level data card ("i") creates a composite.
-          const folderEl = targetCard.closest('[data-folder-children]');
-          const folderPath = folderEl ? String(folderEl.dataset.folderChildren) : null;
-          const folder = folderPath ? getCardByPath(folderPath) : null;
+        if (hit && (hit.kind === 'card' || hit.kind === 'child')) {
+          // Drop ONTO a data card (top-level or folder child) → merge
+          // (regroupement), wherever the card lives.
+          mergeInto(getCardByPath(hit.path), dragged.f, field.label);
+        }
+        else if (hit && hit.kind === 'folder') {
+          // Drop ONTO folder header / empty zone → append as child.
+          const folder = getCardByPath(hit.path);
           if (folder && isFolder(folder)) {
-            // Drop ONTO folder (header, empty zone or one of its children)
-            // → append as child (auto-expand).
             const nc = newDataCard(dragged.f);
             if (nc) {
               folder.children = folder.children || [];
               folder.children.push(nc);
               folder.collapsed = false;
-            }
-          }
-          else if (target && isFolder(target)) {
-            // Drop ONTO folder → append as child (auto-expand).
-            const nc = newDataCard(dragged.f);
-            if (nc) {
-              target.children = target.children || [];
-              target.children.push(nc);
-              target.collapsed = false;
-            }
-          }
-          else if (target && !isFolder(target)) {
-            // Drop ONTO data card → add to its source_fields (create composite).
-            const sources = target.source_fields ? [...target.source_fields] : [target.field];
-            if (!sources.includes(dragged.f)) {
-              sources.push(dragged.f);
-              target.source_fields = sources;
-              target.mode = target.mode || 'union';
-              if (!target.label || target.label === field.label) {
-                target.label = sources.length === 2 ? `${field.label} + ...` : target.label;
-              }
             }
           }
         }
@@ -1276,24 +1397,39 @@
           dragged = null;
           return;
         }
-        if (isOnCard) {
-          const target = getCardByPath(targetPath);
-          if (target && isFolder(target) && !isFolder(moved)) {
-            // Move data card INTO folder.
-            target.children = target.children || [];
-            target.children.push(moved);
-            target.collapsed = false;
+        if (hit && hit.kind === 'folder') {
+          const folder = getCardByPath(hit.path);
+          if (folder && isFolder(folder) && !isFolder(moved)) {
+            // Move data card INTO folder → append as child.
+            folder.children = folder.children || [];
+            folder.children.push(moved);
+            folder.collapsed = false;
           }
-          else if (targetPath.includes('/')) {
-            // Move next to a folder child (same folder).
-            const [fi, ci] = targetPath.split('/').map(Number);
-            let at = ci;
-            if (srcParts.length === 2 && srcParts[0] === fi && srcParts[1] < ci) at = ci - 1;
-            state.cards[fi].children.splice(at, 0, moved);
+          else {
+            // Dropping a folder onto a folder header: put back at end.
+            state.cards.push(moved);
+          }
+        }
+        else if (hit && (hit.kind === 'card' || hit.kind === 'child')) {
+          // Move next to the hovered card: same-folder child reorder keeps
+          // the positional insert; otherwise append into that folder.
+          const [fi, ci] = hit.path.split('/').map(Number);
+          if (hit.kind === 'child') {
+            if (srcParts.length === 2 && srcParts[0] === fi) {
+              let at = ci;
+              if (srcParts[1] < ci) at = ci - 1;
+              state.cards[fi].children.splice(at, 0, moved);
+            }
+            else if (!isFolder(moved)) {
+              state.cards[fi].children.splice(ci, 0, moved);
+            }
+            else {
+              state.cards.push(moved);
+            }
           }
           else {
             // Move to top level at target position.
-            let at = +targetPath;
+            let at = fi;
             if (srcParts.length === 1 && srcParts[0] < at) at = at - 1;
             state.cards.splice(at, 0, moved);
           }

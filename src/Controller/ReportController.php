@@ -276,9 +276,16 @@ class ReportController extends ControllerBase {
       // first_non_empty keeps original kind.
     }
 
-    $agg = (string) $card['agg'];
+    $agg = (string) ($card['agg'] ?? '');
     if (!isset($valid_aggs[$kind][$agg])) {
-      return NULL;
+      // Self-heal instead of silently dropping the card (which emptied
+      // folders after save+reload): fall back to the first valid
+      // aggregation for the effective kind. Mirrors JS ensureValidAgg().
+      $fallback = array_key_first($valid_aggs[$kind] ?? []);
+      if ($fallback === NULL) {
+        return NULL;
+      }
+      $agg = $fallback;
     }
 
     // Validate value_filter if provided (card-level).
