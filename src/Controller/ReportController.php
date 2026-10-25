@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Drupal\webform_report_grid\Controller;
 
+use Symfony\Component\HttpFoundation\RedirectResponse;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\webform_report_grid\Entity\WebformReport;
 use Drupal\webform_report_grid\Service\ReportDataService;
@@ -32,6 +33,9 @@ class ReportController extends ControllerBase {
     );
   }
 
+  /**
+   *
+   */
   public function title(WebformReport $webform_report): string {
     return (string) $webform_report->label();
   }
@@ -93,7 +97,7 @@ class ReportController extends ControllerBase {
       'cardGap' => (int) ($settings->get('card_gap') ?? 16),
       'columnWidth' => (int) ($settings->get('column_width') ?? 280),
       'columns' => min(24, max(4, (int) ($settings->get('columns') ?? 12))),
-      'autoSizeCards' => (bool) ($settings->get('auto_size_cards') ?? TRUE),
+      'frontCompact' => (bool) ($settings->get('front_compact') ?? FALSE),
     ];
     return [
       '#theme' => 'webform_report_grid_view',
@@ -227,9 +231,11 @@ class ReportController extends ControllerBase {
         'label' => mb_substr((string) ($card['label'] ?? 'Dossier'), 0, 120) ?: 'Dossier',
         'collapsed' => !empty($card['collapsed']),
         'x' => isset($card['x']) ? max(0, min(24, (int) $card['x'])) : NULL,
-        'y' => isset($card['y']) ? max(0, min(100, (int) $card['y'])) : NULL,
-        'w' => max(1, min(24, (int) ($card['w'] ?? 2))),
-        'h' => max(1, min(10, (int) ($card['h'] ?? 2))),
+        'y' => isset($card['y']) ? max(0, min(200, (int) $card['y'])) : NULL,
+        'w' => max(1, min(24, (int) ($card['w'] ?? 4))),
+        'h' => max(1, min(100, (int) ($card['h'] ?? 3))),
+        'auto_h' => !empty($card['auto_h']) ? TRUE : NULL,
+        'h_open' => isset($card['h_open']) ? max(1, min(100, (int) $card['h_open'])) : NULL,
         'px_w' => isset($card['px_w']) ? max(100, min(2400, (int) $card['px_w'])) : NULL,
         'children' => array_values($children),
       ];
@@ -255,7 +261,7 @@ class ReportController extends ControllerBase {
     }
 
     // Validate all source fields exist.
-    $valid_sources = array_filter($source_fields, fn($k) => isset($fields[$k]));
+    $valid_sources = array_values(array_filter($source_fields, fn($k) => isset($fields[$k])));
     if (empty($valid_sources)) {
       return NULL;
     }
@@ -268,10 +274,12 @@ class ReportController extends ControllerBase {
 
     if ($is_composite) {
       if ($mode === 'union') {
-        $kind = 'r'; // Union of choices acts as choice field.
+        // Union of choices acts as choice field.
+        $kind = 'r';
       }
       elseif ($mode === 'sum') {
-        $kind = 'n'; // Sum of numbers acts as number field.
+        // Sum of numbers acts as number field.
+        $kind = 'n';
       }
       // first_non_empty keeps original kind.
     }
@@ -365,13 +373,13 @@ class ReportController extends ControllerBase {
    * Generic entry point: /webform-report/switch?webform=ID&report=ID.
    * Without parameters it shows the two selects; with both it redirects.
    */
-  public function switchContext(Request $request): array|\Symfony\Component\HttpFoundation\RedirectResponse {
+  public function switchContext(Request $request): array|RedirectResponse {
     $webform_id = (string) $request->query->get('webform', '');
     $report_id = (string) $request->query->get('report', '');
     if ($webform_id !== '' && $report_id !== '') {
       $report = $this->entityTypeManager()->getStorage('webform_report')->load($report_id);
       if ($report) {
-        return new \Symfony\Component\HttpFoundation\RedirectResponse($report->toUrl()->toString());
+        return new RedirectResponse($report->toUrl()->toString());
       }
       $this->messenger()->addError($this->t('Report @id not found.', ['@id' => $report_id]));
     }

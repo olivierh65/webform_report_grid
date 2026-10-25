@@ -16,7 +16,107 @@ webform_report_grid.settings:
       label: 'Number of grid columns'
     auto_size_cards:
       type: boolean
-      label: 'Auto-size cards to fit content'
+      label: 'Auto-size cards to fit content (deprecated, unused by the viewer)'
+    front_compact:
+      type: boolean
+      label: 'Pack cards upward in the front view'
+
+# Data card (also used for folder children).
+webform_report_grid.card_leaf:
+  type: mapping
+  label: 'Grid data card'
+  mapping:
+    type:
+      type: string
+      label: 'Card type (card|folder)'
+      nullable: true
+    field:
+      type: string
+    source_fields:
+      type: sequence
+      sequence:
+        type: string
+    mode:
+      type: string
+    display_mode:
+      type: string
+    agg:
+      type: string
+    value_filter:
+      type: sequence
+      nullable: true
+      sequence:
+        type: string
+    value_filters:
+      type: sequence
+      label: 'Per source field value filters'
+      nullable: true
+      sequence:
+        type: sequence
+        sequence:
+          type: string
+    x:
+      type: integer
+      nullable: true
+    y:
+      type: integer
+      nullable: true
+    w:
+      type: integer
+    h:
+      type: integer
+    px_w:
+      type: integer
+      label: 'Saved pixel width'
+      nullable: true
+    min_h:
+      type: integer
+      nullable: true
+    max_h:
+      type: integer
+      nullable: true
+    auto_h:
+      type: boolean
+      label: 'Height fitted to content'
+      nullable: true
+    label:
+      type: string
+    group_label:
+      type: string
+      nullable: true
+    summary_label:
+      type: string
+      nullable: true
+    source_labels:
+      type: sequence
+      nullable: true
+      sequence:
+        type: string
+    section_labels:
+      type: sequence
+      nullable: true
+      sequence:
+        type: string
+
+# Top-level card: a data card or a folder (one nesting level only).
+webform_report_grid.card:
+  type: webform_report_grid.card_leaf
+  label: 'Grid card or folder'
+  mapping:
+    collapsed:
+      type: boolean
+      label: 'Folder collapsed by default'
+      nullable: true
+    h_open:
+      type: integer
+      label: 'Folder height when expanded'
+      nullable: true
+    children:
+      type: sequence
+      label: 'Folder children cards'
+      nullable: true
+      sequence:
+        type: webform_report_grid.card_leaf
 
 webform_report.webform_report.*:
   type: config_entity
@@ -40,81 +140,4 @@ webform_report.webform_report.*:
       type: sequence
       label: 'Grid cards'
       sequence:
-        type: mapping
-        mapping:
-          type:
-            type: string
-            label: 'Card type (card|folder)'
-          field:
-            type: string
-          source_fields:
-            type: sequence
-            sequence:
-              type: string
-          mode:
-            type: string
-          display_mode:
-            type: string
-          agg:
-            type: string
-          w:
-            type: integer
-          px_w:
-            type: integer
-            label: 'Saved pixel width'
-          h:
-            type: integer
-          min_h:
-            type: integer
-          max_h:
-            type: integer
-          label:
-            type: string
-          group_label:
-            type: string
-          summary_label:
-            type: string
-          value_filter:
-            type: sequence
-            sequence:
-              type: string
-          collapsed:
-            type: boolean
-            label: 'Folder collapsed by default'
-          children:
-            type: sequence
-            label: 'Folder children cards'
-            sequence:
-              type: mapping
-              mapping:
-                type:
-                  type: string
-                field:
-                  type: string
-                source_fields:
-                  type: sequence
-                  sequence:
-                    type: string
-                mode:
-                  type: string
-                display_mode:
-                  type: string
-                agg:
-                  type: string
-                w:
-                  type: integer
-                px_w:
-                  type: integer
-                  label: 'Saved pixel width'
-                h:
-                  type: integer
-                label:
-                  type: string
-                group_label:
-                  type: string
-                summary_label:
-                  type: string
-                value_filter:
-                  type: sequence
-                  sequence:
-                    type: string
+        type: webform_report_grid.card
