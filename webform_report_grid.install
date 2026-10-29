@@ -91,6 +91,28 @@ function webform_report_grid_update_10001(): string {
 }
 
 /**
+ * Import the grid-reports admin view (missed on existing installs).
+ *
+ * config/install only applies at module install time; sites that updated
+ * via git pull + updb never got views.view.webform_report_grid_reports.
+ */
+function webform_report_grid_update_10005(): string {
+  $module_path = \Drupal::service('extension.list.module')->getPath('webform_report_grid');
+  $source = $module_path . '/config/install/views.view.webform_report_grid_reports.yml';
+  if (!file_exists(DRUPAL_ROOT . '/' . $source)) {
+    return t('View config file not found, skipped.')->render();
+  }
+  $data = \Drupal::service('serialization.yaml')->decode(file_get_contents(DRUPAL_ROOT . '/' . $source));
+  unset($data['uuid']);
+  $config = \Drupal::configFactory()->getEditable('views.view.webform_report_grid_reports');
+  $is_new = $config->isNew();
+  $config->setData($data)->save();
+  \Drupal::service('router.builder')->rebuildIfNeeded();
+
+  return t('@op admin view views.view.webform_report_grid_reports.', ['@op' => $is_new ? 'Created' : 'Updated'])->render();
+}
+
+/**
  * Add per-report access fields: viewer_roles, share_enabled, share_token.
  */
 function webform_report_grid_update_10002(): string {
@@ -137,4 +159,69 @@ function webform_report_grid_update_10003(): string {
   }
 
   return t('Added per-report access fields: @n new field(s).', ['@n' => $installed])->render();
+}
+
+/**
+ * Migrate legacy config-entity reports (correct config prefix).
+ *
+ * 10001 searched the wrong prefix ('webform_report.webform_report.') and
+ * migrated 0 reports. The real config names are
+ * 'webform_report_grid.webform_report.<id>' (module name + config_prefix).
+ * This re-runs the migration with both prefixes for safety.
+ */
+function webform_report_grid_update_10004(): string {
+  \Drupal::entityTypeManager()->clearCachedDefinitions();
+
+  $entity_type_manager = \Drupal::entityTypeManager();
+  $entity_type = $entity_type_manager->getDefinition('webform_report');
+
+  \Drupal::service('entity.last_installed_schema.repository')
+    ->setLastInstalledDefinition($entity_type);
+  \Drupal::entityTypeManager()->clearCachedDefinitions();
+
+  $database = \Drupal::database();
+  if (!$database->schema()->tableExists('webform_report')) {
+    \Drupal::entityDefinitionUpdateManager()->installEntityType($entity_type);
+  }
+
+  $report_storage = $entity_type_manager->getStorage('webform_report');
+  $config_factory = \Drupal::configFactory();
+  $migrated = 0;
+  $skipped = 0;
+
+  $names = array_merge(
+    $config_factory->listAll('webform_report_grid.webform_report.'),
+    $config_factory->listAll('webform_report.webform_report.'),
+  );
+  foreach (array_unique($names) as $config_name) {
+    $config = $config_factory->get($config_name);
+    $data = $config->getRawData();
+    $webform_id = $data['webform_id'] ?? '';
+    if ($webform_id === '' || !$entity_type_manager->getStorage('webform')->load($webform_id)) {
+      $skipped++;
+      continue;
+    }
+    $existing = $report_storage->loadByProperties([
+      'label' => $data['label'] ?? $data['id'] ?? $config_name,
+      'webform' => $webform_id,
+    ]);
+    if ($existing) {
+      $skipped++;
+      continue;
+    }
+    $report = $report_storage->create([
+      'label' => $data['label'] ?? $data['id'] ?? $config_name,
+      'webform' => ['target_id' => $webform_id],
+      'filter_field' => $data['filter_field'] ?? '',
+    ]);
+    $report->setCards($data['cards'] ?? []);
+    $report->save();
+    $migrated++;
+    \Drupal::configFactory()->getEditable($config_name)->delete();
+  }
+
+  return t('Migrated @migrated grid report(s) to content entities (@skipped skipped: missing webform or already migrated).', [
+    '@migrated' => $migrated,
+    '@skipped' => $skipped,
+  ])->render();
 }
