@@ -17,6 +17,7 @@ function webform_report_grid_theme($existing, $type, $theme, $path): array {
         'title' => '',
         'report_id' => '',
         'read_only' => FALSE,
+        'shared' => FALSE,
       ],
       'template' => 'webform-report-grid-view',
     ],

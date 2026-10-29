@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Drupal\webform_report_grid\Service;
 
-use Drupal\webform_report_grid\Entity\WebformReport;
+use Drupal\webform_report_grid\Entity\WebformReportInterface;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -21,7 +21,7 @@ class ReportExportService {
   /**
    * Builds [summary rows, per-person rows] honoring the active filter.
    */
-  public function tables(WebformReport $report, string $filter_value = ''): array {
+  public function tables(WebformReportInterface $report, string $filter_value = ''): array {
     $fields = $this->discovery->getFields($report->getWebformId());
     $rows = $this->data->loadRows($report, $filter_value);
     $aggs = ReportFieldDiscovery::aggregations();
@@ -93,7 +93,7 @@ class ReportExportService {
   /**
    * CSV streamed response (BOM + ; separator for LibreOffice).
    */
-  public function csvResponse(WebformReport $report, string $filter_value = ''): Response {
+  public function csvResponse(WebformReportInterface $report, string $filter_value = ''): Response {
     [$summary] = $this->tables($report, $filter_value);
     $response = new StreamedResponse(function () use ($summary) {
       $out = fopen('php://output', 'w');
@@ -111,7 +111,7 @@ class ReportExportService {
   /**
    * XLSX response with Summary + Per person sheets.
    */
-  public function xlsxResponse(WebformReport $report, string $filter_value = ''): Response {
+  public function xlsxResponse(WebformReportInterface $report, string $filter_value = ''): Response {
     [$summary, $per_person] = $this->tables($report, $filter_value);
     $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
     $sheet = $spreadsheet->getActiveSheet();

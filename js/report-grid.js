@@ -50,6 +50,16 @@
   function init(root) {
     const cfg = drupalSettings.webformReportGrid || {};
     const readOnly = !!cfg.readOnly;
+    // Share mode (anonymous token link): hide exports, they are not
+    // available on the share routes (viewer + JSON data only).
+    const shared = !!cfg.shareToken;
+    if (shared) {
+      root.querySelectorAll("[data-wrg-export]").forEach((a) => {
+        const wrap = a.closest(".wrg-export");
+        if (wrap) wrap.style.display = "none";
+        else a.style.display = "none";
+      });
+    }
     const display = Object.assign(
       {
         fontSize: 0.95,

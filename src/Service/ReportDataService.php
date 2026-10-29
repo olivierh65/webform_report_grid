@@ -6,7 +6,7 @@ namespace Drupal\webform_report_grid\Service;
 
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Session\AccountInterface;
-use Drupal\webform_report_grid\Entity\WebformReport;
+use Drupal\webform_report_grid\Entity\WebformReportInterface;
 
 /**
  * Loads webform submissions and computes card aggregations in PHP.
@@ -35,7 +35,7 @@ class ReportDataService {
    *
    * @return array<int, array{n: string, full: string, contacts: array, f: array}>
    */
-  public function loadRows(WebformReport $report, string $filter_value = ''): array {
+  public function loadRows(WebformReportInterface $report, string $filter_value = ''): array {
     $webform_id = $report->getWebformId();
     $storage = $this->entityTypeManager->getStorage('webform_submission');
     $ids = $storage->getQuery()

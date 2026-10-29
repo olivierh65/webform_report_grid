@@ -1,0 +1,140 @@
+<?php
+
+/**
+ * @file
+ * Install, update and uninstall hooks for Webform Report Grid.
+ */
+
+declare(strict_types=1);
+
+/**
+ * Implements hook_schema().
+ *
+ * Note: base/data tables for the webform_report content entity are created
+ * automatically by the entity storage; nothing to declare here.
+ */
+function webform_report_grid_schema(): array {
+  return [];
+}
+
+/**
+ * Migrate legacy config-entity reports (webform_report.*) to content entities.
+ */
+function webform_report_grid_update_10001(): string {
+  // The entity type changed from config to content: force plugin rediscovery
+  // so the storage is built from the new ContentEntityType definition.
+  // Without this, the manager reuses the stale cached ConfigEntityType and
+  // SqlContentEntityStorage::getCustomTableMapping() fatals (TypeError).
+  \Drupal::entityTypeManager()->clearCachedDefinitions();
+
+  $entity_type_manager = \Drupal::entityTypeManager();
+  $entity_type = $entity_type_manager->getDefinition('webform_report');
+
+  // CRITICAL: SqlContentEntityStorage::__construct() uses
+  // getActiveDefinition() = the LAST INSTALLED definition stored in
+  // key-value (entity.definitions.installed), NOT the fresh annotation.
+  // Since the type changed class (ConfigEntityType -> ContentEntityType),
+  // we must overwrite the installed definition BEFORE any storage is
+  // instantiated, otherwise the SQL storage receives the stale
+  // ConfigEntityType and fatals in getCustomTableMapping().
+  \Drupal::service('entity.last_installed_schema.repository')
+    ->setLastInstalledDefinition($entity_type);
+  \Drupal::entityTypeManager()->clearCachedDefinitions();
+
+  // Create base/data tables on first run (no-op on re-run).
+  $database = \Drupal::database();
+  if (!$database->schema()->tableExists('webform_report')) {
+    \Drupal::entityDefinitionUpdateManager()->installEntityType($entity_type);
+  }
+
+  // Re-fetch the storage AFTER the cache clear + schema install.
+  $report_storage = $entity_type_manager->getStorage('webform_report');
+  $config_factory = \Drupal::configFactory();
+  $migrated = 0;
+  $skipped = 0;
+
+  foreach ($config_factory->listAll('webform_report.webform_report.') as $config_name) {
+    $config = $config_factory->get($config_name);
+    $data = $config->getRawData();
+    $webform_id = $data['webform_id'] ?? '';
+    if ($webform_id === '' || !$entity_type_manager->getStorage('webform')->load($webform_id)) {
+      $skipped++;
+      continue;
+    }
+    // Avoid duplicates if the update already ran partially.
+    $existing = $report_storage->loadByProperties([
+      'label' => $data['label'] ?? $data['id'] ?? $config_name,
+      'webform' => $webform_id,
+    ]);
+    if ($existing) {
+      $skipped++;
+      continue;
+    }
+    // NOTE: setCards() JSON-encodes; do NOT pass the raw array to create()
+    // (string_long field would misinterpret it as a list of items).
+    $report = $report_storage->create([
+      'label' => $data['label'] ?? $data['id'] ?? $config_name,
+      'webform' => ['target_id' => $webform_id],
+      'filter_field' => $data['filter_field'] ?? '',
+    ]);
+    $report->setCards($data['cards'] ?? []);
+    $report->save();
+    $migrated++;
+    // Remove the legacy config entity so it does not linger.
+    \Drupal::configFactory()->getEditable($config_name)->delete();
+  }
+
+  return t('Migrated @migrated grid report(s) to content entities (@skipped skipped: missing webform or already migrated).', [
+    '@migrated' => $migrated,
+    '@skipped' => $skipped,
+  ])->render();
+}
+
+/**
+ * Add per-report access fields: viewer_roles, share_enabled, share_token.
+ */
+function webform_report_grid_update_10002(): string {
+  \Drupal::entityTypeManager()->clearCachedDefinitions();
+  $update_manager = \Drupal::entityDefinitionUpdateManager();
+  $definitions = \Drupal::service('entity_field.manager')->getBaseFieldDefinitions('webform_report');
+
+  $installed = 0;
+  foreach (['viewer_roles', 'share_enabled', 'share_token'] as $field_name) {
+    if (!isset($definitions[$field_name])) {
+      continue;
+    }
+    $existing = array_keys(\Drupal::service('entity_field.manager')->getFieldStorageDefinitions('webform_report'));
+    if (!in_array($field_name, $existing, TRUE)) {
+      $update_manager->installFieldStorageDefinition($field_name, 'webform_report', 'webform_report', $definitions[$field_name]);
+      $installed++;
+    }
+  }
+
+  return t('Added per-report access fields (viewer_roles, share_enabled, share_token): @n new field(s).', ['@n' => $installed])->render();
+}
+
+/**
+ * Add per-report access fields (fixed existence check).
+ *
+ * 10002 used getFieldStorageDefinitions() which lists definitions even when
+ * their columns are missing; getFieldStorageDefinition() returns NULL when
+ * the storage is really not installed.
+ */
+function webform_report_grid_update_10003(): string {
+  \Drupal::entityTypeManager()->clearCachedDefinitions();
+  $update_manager = \Drupal::entityDefinitionUpdateManager();
+  $definitions = \Drupal::service('entity_field.manager')->getBaseFieldDefinitions('webform_report');
+
+  $installed = 0;
+  foreach (['viewer_roles', 'share_enabled', 'share_token'] as $field_name) {
+    if (!isset($definitions[$field_name])) {
+      continue;
+    }
+    if ($update_manager->getFieldStorageDefinition($field_name, 'webform_report') === NULL) {
+      $update_manager->installFieldStorageDefinition($field_name, 'webform_report', 'webform_report', $definitions[$field_name]);
+      $installed++;
+    }
+  }
+
+  return t('Added per-report access fields: @n new field(s).', ['@n' => $installed])->render();
+}

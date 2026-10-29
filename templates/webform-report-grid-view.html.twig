@@ -16,10 +16,12 @@
     </aside>
     {% endif %}
     <section class="wrg-main">
+      {% if not shared %}
       <div class="wrg-export">
         <a class="button" data-wrg-export="csv">Export CSV</a>
         <a class="button" data-wrg-export="xlsx">Export Excel / LibreOffice</a>
       </div>
+      {% endif %}
       {% if not read_only %}
       <p class="wrg-hint">Drag a field into the grid. Drop a field onto a dossier to file it inside. Drag cards to reorder, change the summary with the menu.</p>
       {% endif %}

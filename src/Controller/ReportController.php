@@ -6,7 +6,7 @@ namespace Drupal\webform_report_grid\Controller;
 
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Drupal\Core\Controller\ControllerBase;
-use Drupal\webform_report_grid\Entity\WebformReport;
+use Drupal\webform_report_grid\Entity\WebformReportInterface;
 use Drupal\webform_report_grid\Service\ReportDataService;
 use Drupal\webform_report_grid\Service\ReportFieldDiscovery;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -36,7 +36,7 @@ class ReportController extends ControllerBase {
   /**
    *
    */
-  public function title(WebformReport $webform_report): string {
+  public function title(WebformReportInterface $webform_report): string {
     return (string) $webform_report->label();
   }
 
@@ -45,10 +45,10 @@ class ReportController extends ControllerBase {
    */
   public function byWebform(string $webform): array {
     $reports = $this->entityTypeManager()->getStorage('webform_report')
-      ->loadByProperties(['webform_id' => $webform]);
+      ->loadByProperties(['webform' => $webform]);
     $items = [];
     foreach ($reports as $report) {
-      $items[] = $report->toLink($report->label() . ' (' . count($report->getCards()) . ' cards)')->toRenderable();
+      $items[] = $report->toLink($report->label() . ' (' . count($report->getCards()) . ' cards)', 'canonical')->toRenderable();
     }
     return [
       '#theme' => 'item_list',
@@ -60,14 +60,14 @@ class ReportController extends ControllerBase {
   /**
    * Grid viewer: palette + cards + dialogs, data loaded as JSON.
    */
-  public function view(WebformReport $webform_report): array {
+  public function view(WebformReportInterface $webform_report): array {
     return $this->buildView($webform_report, FALSE);
   }
 
   /**
    * Front-office grid viewer: read-only mode without palette or card controls.
    */
-  public function viewFront(WebformReport $webform_report): array {
+  public function viewFront(WebformReportInterface $webform_report): array {
     return $this->buildView($webform_report, TRUE);
   }
 
@@ -75,22 +75,68 @@ class ReportController extends ControllerBase {
    * Build page: editable grid viewer with palette, toolbar, drag & drop.
    * Requires 'administer webform reports' permission.
    */
-  public function build(WebformReport $webform_report): array {
+  public function build(WebformReportInterface $webform_report): array {
     return $this->buildView($webform_report, FALSE);
+  }
+
+  /**
+   * Anonymous share entry point: /webform-report/s/{token}.
+   *
+   * Read-only viewer only. Data/person JSON endpoints accept the same token
+   * via ?share= query param (checked explicitly, not via entity access).
+   * Exports are NOT available through the share link.
+   */
+  public function shared(string $token, Request $request): array {
+    $report = $this->findByShareToken($token);
+    if (!$report) {
+      throw new \Symfony\Component\HttpKernel\Exception\NotFoundHttpException();
+    }
+    return $this->buildView($report, TRUE, $token);
+  }
+
+  /**
+   * Loads a report by its share token (only when sharing is enabled).
+   */
+  protected function findByShareToken(string $token): ?WebformReportInterface {
+    if ($token === '' || strlen($token) > 64) {
+      return NULL;
+    }
+    $storage = $this->entityTypeManager()->getStorage('webform_report');
+    $ids = $storage->getQuery()
+      ->condition('share_token', $token)
+      ->condition('share_enabled', TRUE)
+      ->accessCheck(FALSE)
+      ->execute();
+    if (!$ids) {
+      return NULL;
+    }
+    $report = $storage->load(reset($ids));
+    return $report instanceof WebformReportInterface ? $report : NULL;
+  }
+
+  /**
+   * Validates the ?share= token for a report (data/person JSON endpoints).
+   */
+  protected function validShareToken(WebformReportInterface $report, Request $request): bool {
+    $token = (string) $request->query->get('share', '');
+    return $token !== '' && hash_equals($report->getShareToken(), $token) && $report->isShareEnabled();
   }
 
   /**
    * Builds the view array for the grid.
    *
-   * @param \Drupal\webform_report_grid\Entity\WebformReport $webform_report
+   * @param \Drupal\webform_report_grid\Entity\WebformReportInterface $webform_report
    *   The report entity.
    * @param bool $read_only
    *   TRUE for front-office (read-only), FALSE for back-office (editable).
+   * @param string|null $share_token
+   *   Share token when rendered through the anonymous share route; the
+   *   viewer JS appends it as ?share= to data/person requests.
    *
    * @return array
    *   Render array.
    */
-  protected function buildView(WebformReport $webform_report, bool $read_only): array {
+  protected function buildView(WebformReportInterface $webform_report, bool $read_only, ?string $share_token = NULL): array {
     $settings = \Drupal::config('webform_report_grid.settings');
     $display = [
       'fontSize' => (float) ($settings->get('font_size') ?? 0.95),
@@ -99,11 +145,15 @@ class ReportController extends ControllerBase {
       'columns' => min(24, max(4, (int) ($settings->get('columns') ?? 12))),
       'frontCompact' => (bool) ($settings->get('front_compact') ?? FALSE),
     ];
+    $data_url = $share_token
+      ? '/webform-report/s/' . $share_token . '/data'
+      : '/webform-report/' . $webform_report->id() . '/data';
     return [
       '#theme' => 'webform_report_grid_view',
       '#title' => $webform_report->label(),
       '#report_id' => $webform_report->id(),
       '#read_only' => $read_only,
+      '#shared' => $share_token !== NULL,
       '#attached' => [
         'library' => ['webform_report_grid/viewer'],
         'drupalSettings' => [
@@ -111,20 +161,23 @@ class ReportController extends ControllerBase {
             'reportId' => $webform_report->id(),
             'cards' => $webform_report->getCards(),
             'filterField' => $webform_report->getFilterField(),
-            'dataUrl' => '/webform-report/' . $webform_report->id() . '/data',
+            'dataUrl' => $data_url,
             'csrfToken' => \Drupal::csrfToken()->get('webform-report/' . $webform_report->id() . '/save'),
             'readOnly' => $read_only,
             'display' => $display,
+            'shareToken' => $share_token,
           ],
         ],
       ],
+      // Share route must vary cache by URL (token in path).
+      '#cache' => $share_token ? ['contexts' => ['url.path']] : [],
     ];
   }
 
   /**
    * JSON: groups + fields + rows + aggregations (powers the viewer).
    */
-  public function data(WebformReport $webform_report, Request $request): JsonResponse {
+  public function data(WebformReportInterface $webform_report, Request $request): JsonResponse {
     $filter = $request->query->get('filter', '');
     $rows = $this->data->loadRows($webform_report, (string) $filter);
     return new JsonResponse([
@@ -137,9 +190,32 @@ class ReportController extends ControllerBase {
   }
 
   /**
+   * JSON data for the anonymous share route: /webform-report/s/{token}/data.
+   *
+   * Same payload as data() but contacts are always hidden (share viewers
+   * never see personal details). No entity access check here: the token in
+   * the path IS the credential.
+   */
+  public function sharedData(string $token, Request $request): JsonResponse {
+    $report = $this->findByShareToken($token);
+    if (!$report) {
+      return new JsonResponse(['error' => 'Not found.'], 404);
+    }
+    $filter = $request->query->get('filter', '');
+    $rows = $this->data->loadRows($report, (string) $filter);
+    return new JsonResponse([
+      'groups' => $this->discovery->getGroups($report->getWebformId()),
+      'rows' => $this->data->publicRows($rows),
+      'total' => count($rows),
+      'aggregations' => ReportFieldDiscovery::aggregations(),
+      'canSeeContacts' => FALSE,
+    ]);
+  }
+
+  /**
    * JSON: field catalog only (palette refresh after webform change).
    */
-  public function fields(WebformReport $webform_report): JsonResponse {
+  public function fields(WebformReportInterface $webform_report): JsonResponse {
     return new JsonResponse([
       'groups' => $this->discovery->getGroups($webform_report->getWebformId()),
       'aggregations' => ReportFieldDiscovery::aggregations(),
@@ -155,7 +231,7 @@ class ReportController extends ControllerBase {
    * - value_filter: optional array of values to include (e.g., ["1"] for boolean true only)
    * Fields and aggregations are validated against the discovery service.
    */
-  public function saveCards(WebformReport $webform_report, Request $request): JsonResponse {
+  public function saveCards(WebformReportInterface $webform_report, Request $request): JsonResponse {
     // Validate CSRF token (sent via X-CSRF-Token header or token query param).
     $token = $request->headers->get('X-CSRF-Token') ?? $request->query->get('token');
     if (!$token || !\Drupal::csrfToken()->validate($token, 'webform-report/' . $webform_report->id() . '/save')) {
@@ -392,7 +468,7 @@ class ReportController extends ControllerBase {
 
     $reports = [];
     if ($webform_id !== '') {
-      foreach ($this->entityTypeManager()->getStorage('webform_report')->loadByProperties(['webform_id' => $webform_id]) as $id => $report) {
+      foreach ($this->entityTypeManager()->getStorage('webform_report')->loadByProperties(['webform' => $webform_id]) as $id => $report) {
         $reports[$id] = $report->label() . ' (' . count($report->getCards()) . ' cards)';
       }
     }
@@ -410,7 +486,7 @@ class ReportController extends ControllerBase {
   /**
    * JSON: one person detail (all their answers grouped).
    */
-  public function person(WebformReport $webform_report, int $index, Request $request): JsonResponse {
+  public function person(WebformReportInterface $webform_report, int $index, Request $request): JsonResponse {
     $filter = $request->query->get('filter', '');
     $rows = $this->data->loadRows($webform_report, (string) $filter);
     if (!isset($rows[$index])) {
@@ -430,6 +506,39 @@ class ReportController extends ControllerBase {
     return new JsonResponse([
       'name' => $this->data->canSeeContacts() ? $row['full'] : $row['n'],
       'contacts' => $this->data->canSeeContacts() ? $row['contacts'] : NULL,
+      'groups' => $groups,
+    ]);
+  }
+
+  /**
+   * JSON person detail for the anonymous share route.
+   *
+   * Contacts are always hidden; only the shortened name is exposed.
+   */
+  public function sharedPerson(string $token, int $index, Request $request): JsonResponse {
+    $report = $this->findByShareToken($token);
+    if (!$report) {
+      return new JsonResponse(['error' => 'Not found.'], 404);
+    }
+    $filter = $request->query->get('filter', '');
+    $rows = $this->data->loadRows($report, (string) $filter);
+    if (!isset($rows[$index])) {
+      return new JsonResponse(['error' => 'Not found'], 404);
+    }
+    $row = $rows[$index];
+    $fields = $this->discovery->getFields($report->getWebformId());
+    $groups = [];
+    foreach ($fields as $key => $field) {
+      if (!array_key_exists($key, $row['f'])) {
+        continue;
+      }
+      $value = $row['f'][$key];
+      $label = $field['options'][(string) $value] ?? (is_array($value) ? implode(', ', $value) : (string) $value);
+      $groups[$field['group']][] = $field['label'] . (is_numeric($value) && $value != 1 ? ' : ' . $value : ($field['kind'] === 'r' ? ' ' . $label : ''));
+    }
+    return new JsonResponse([
+      'name' => $row['n'],
+      'contacts' => NULL,
       'groups' => $groups,
     ]);
   }
