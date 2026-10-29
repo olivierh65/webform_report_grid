@@ -6,6 +6,7 @@ namespace Drupal\Tests\webform_report_grid\Unit\Service;
 
 use Drupal\Tests\UnitTestCase;
 use Drupal\webform_report_grid\Service\ReportDataService;
+use Drupal\webform_report_grid\Service\ReportExportService;
 use Drupal\webform_report_grid\Service\ReportFieldDiscovery;
 
 /**
@@ -230,6 +231,9 @@ class ReportDataServiceTest extends UnitTestCase {
     // 3 rows have the 'comments' key.
     $this->assertEquals(3, $result['val']);
     $this->assertCount(3, $result['who']);
+    $this->assertContains('Great!', $result['values']);
+    $this->assertContains('OK', $result['values']);
+    $this->assertNotContains('', $result['values']);
   }
 
   /**
@@ -255,12 +259,82 @@ class ReportDataServiceTest extends UnitTestCase {
   }
 
   /**
-   * Tests publicRows privacy filtering (placeholder - needs user mock).
+   * Tests publicRows strips contact values from the JSON payload.
    */
-  public function testPublicRowsPrivacyPlaceholder(): void {
-    // This test would need a proper current_user mock with permissions.
-    // The method structure is tested by other tests.
-    $this->assertTrue(TRUE);
+  public function testPublicRowsRedactsContacts(): void {
+    $this->discovery->method('getFields')->willReturn([
+      'identite__first_name' => ['kind' => 't', 'label' => 'First name', 'contact' => TRUE, 'options' => [], 'group' => 'Identity'],
+      'identite__email' => ['kind' => 't', 'label' => 'Email', 'contact' => TRUE, 'options' => [], 'group' => 'Identity'],
+      'age' => ['kind' => 'n', 'label' => 'Age', 'contact' => FALSE, 'options' => [], 'group' => 'Other'],
+    ]);
+    $rows = [[
+      'n' => 'Julien D.',
+      'full' => 'Julien Dupont',
+      'contacts' => ['email' => 'julien@example.com', 'phone' => '+33123456789'],
+      'f' => [
+        'identite__first_name' => 'Julien',
+        'identite__email' => 'julien@example.com',
+        'age' => 42,
+      ],
+    ]];
+
+    // User without the contacts permission.
+    $user = $this->createMock(\Drupal\Core\Session\AccountInterface::class);
+    $user->method('hasPermission')->willReturn(FALSE);
+    $service = new ReportDataService(
+      $this->createMock(\Drupal\Core\Entity\EntityTypeManagerInterface::class),
+      $user,
+      $this->discovery,
+    );
+
+    $result = $service->publicRows('test_webform', $rows);
+    $this->assertSame('Julien D.', $result[0]['n']);
+    $this->assertArrayNotHasKey('contacts', $result[0]);
+    $this->assertArrayNotHasKey('identite__first_name', $result[0]['f']);
+    $this->assertArrayNotHasKey('identite__email', $result[0]['f']);
+    $this->assertSame(42, $result[0]['f']['age']);
+
+    // Share links force redaction even when the user has the permission.
+    $result = $this->dataService->publicRows('test_webform', $rows, TRUE);
+    $this->assertSame('Julien D.', $result[0]['n']);
+    $this->assertArrayNotHasKey('contacts', $result[0]);
+    $this->assertArrayNotHasKey('identite__email', $result[0]['f']);
+  }
+
+  /**
+   * Tests CSV/XLSX formula injection neutralization.
+   */
+  public function testSanitizeCell(): void {
+    $service = new ReportExportService(
+      $this->createMock(ReportDataService::class),
+      $this->createMock(ReportFieldDiscovery::class),
+    );
+    $method = new \ReflectionMethod($service, 'sanitizeCell');
+    $method->setAccessible(TRUE);
+    $this->assertSame("'=SUM(A1)", $method->invoke($service, '=SUM(A1)'));
+    $this->assertSame("'+1", $method->invoke($service, '+1'));
+    $this->assertSame("'-1", $method->invoke($service, '-1'));
+    $this->assertSame("'@cmd", $method->invoke($service, '@cmd'));
+    $this->assertSame('safe', $method->invoke($service, 'safe'));
+    $this->assertSame(42, $method->invoke($service, 42));
+  }
+
+  /**
+   * Tests publicRows keeps contact values for authorized users.
+   */
+  public function testPublicRowsKeepsContactsWhenAllowed(): void {
+    $this->discovery->method('getFields')->willReturn([]);
+    $rows = [[
+      'n' => 'Julien D.',
+      'full' => 'Julien Dupont',
+      'contacts' => ['email' => 'julien@example.com'],
+      'f' => ['identite__email' => 'julien@example.com'],
+    ]];
+
+    $result = $this->dataService->publicRows('test_webform', $rows);
+    $this->assertSame('Julien Dupont', $result[0]['n']);
+    $this->assertSame('julien@example.com', $result[0]['f']['identite__email']);
+    $this->assertSame(['email' => 'julien@example.com'], $result[0]['contacts']);
   }
 
 }

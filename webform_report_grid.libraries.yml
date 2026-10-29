@@ -1,5 +1,5 @@
 viewer:
-  version: 1.x
+  version: 1.1
   js:
     js/lib/gridstack-h5.js: { minified: true, weight: -5.8 }
     js/report-grid.js: {}

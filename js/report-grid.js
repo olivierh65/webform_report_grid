@@ -1759,7 +1759,7 @@
         return { card: best.card, el: best.el, kind };
       }
 
-      grid.addEventListener("dragover", (e) => {
+      const onDragOver = (e) => {
         if (!dragged) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = "copy";
@@ -1775,16 +1775,16 @@
             );
           hoverKey = k;
         }
-      });
+      };
 
-      grid.addEventListener("dragleave", (e) => {
+      const onDragLeave = (e) => {
         if (!e.currentTarget.contains(e.relatedTarget)) {
           clearHover();
           hoverKey = null;
         }
-      });
+      };
 
-      grid.addEventListener("drop", (e) => {
+      const onDrop = (e) => {
         if (!dragged) return;
         e.preventDefault();
         const hit = hitTestDrop(e.clientX, e.clientY);
@@ -1837,6 +1837,15 @@
             state.cards.push(newDataCard(gridColumns));
           });
         }
+      };
+
+      // Le message "grille vide" est hors de l'élément GridStack : il doit
+      // recevoir ses propres écouteurs, sinon le navigateur affiche un curseur
+      // "interdit" quand on dépose le premier champ dessus.
+      [grid, emptyEl].forEach((target) => {
+        target.addEventListener("dragover", onDragOver);
+        target.addEventListener("dragleave", onDragLeave);
+        target.addEventListener("drop", onDrop);
       });
     }
 

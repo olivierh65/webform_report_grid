@@ -6,6 +6,7 @@ namespace Drupal\webform_report_grid\Form;
 
 use Drupal\Core\Entity\ContentEntityForm;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Url;
 
 /**
  * Create/edit a grid report: webform, filter field, cards JSON.
@@ -71,7 +72,7 @@ class WebformReportForm extends ContentEntityForm {
       '#suffix' => '</div>',
     ];
     if ($report->isShareEnabled()) {
-      $url = \Drupal::request()->getSchemeAndHttpHost() . '/webform-report/s/' . $report->getShareToken();
+      $url = Url::fromRoute('webform_report_grid.shared', ['token' => $report->getShareToken()], ['absolute' => TRUE])->toString();
       $form['share']['link'] = [
         '#type' => 'textfield',
         '#title' => $this->t('Share link (read-only viewer, no login required)'),
@@ -201,8 +202,16 @@ class WebformReportForm extends ContentEntityForm {
       $form_state->setValueForElement($element, '[]');
       return;
     }
-    if (!is_array(json_decode($raw, TRUE))) {
+    $cards = json_decode($raw, TRUE);
+    if (!is_array($cards) || !array_is_list($cards)) {
       $form_state->setError($element, t('Cards must be a valid JSON array.'));
+      return;
+    }
+    foreach ($cards as $card) {
+      if (!is_array($card)) {
+        $form_state->setError($element, t('Each card must be a JSON object.'));
+        return;
+      }
     }
   }
 

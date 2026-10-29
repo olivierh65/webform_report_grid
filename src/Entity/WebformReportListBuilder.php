@@ -47,7 +47,7 @@ class WebformReportListBuilder extends EntityListBuilder {
     $operations['view'] = [
       'title' => $this->t('View'),
       'weight' => -20,
-      'url' => Url::fromRoute('webform_report_grid.view_front', ['webform_report' => $entity->id()]),
+      'url' => Url::fromRoute('entity.webform_report.canonical', ['webform_report' => $entity->id()]),
     ];
     $operations['build'] = [
       'title' => $this->t('Build'),

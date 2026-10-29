@@ -29,6 +29,7 @@ entity.webform_report.edit_form:
     _title: 'Edit grid report'
   requirements:
     _entity_access: 'webform_report.update'
+    webform_report: '\d+'
 
 entity.webform_report.delete_form:
   path: '/webform-report/{webform_report}/delete'
@@ -37,6 +38,7 @@ entity.webform_report.delete_form:
     _title: 'Delete grid report'
   requirements:
     _entity_access: 'webform_report.delete'
+    webform_report: '\d+'
 
 webform_report_grid.by_webform:
   path: '/admin/structure/webform/manage/{webform}/reports'
@@ -55,6 +57,7 @@ webform_report_grid.build:
     _title_callback: '\Drupal\webform_report_grid\Controller\ReportController::title'
   requirements:
     _entity_access: 'webform_report.update'
+    webform_report: '\d+'
 
 entity.webform_report.canonical:
   path: '/webform-report/{webform_report}/front'
@@ -63,6 +66,7 @@ entity.webform_report.canonical:
     _title_callback: '\Drupal\webform_report_grid\Controller\ReportController::title'
   requirements:
     _entity_access: 'webform_report.view'
+    webform_report: '\d+'
 
 webform_report_grid.view:
   path: '/webform-report/{webform_report}'
@@ -71,6 +75,7 @@ webform_report_grid.view:
     _title_callback: '\Drupal\webform_report_grid\Controller\ReportController::title'
   requirements:
     _entity_access: 'webform_report.view'
+    webform_report: '\d+'
 
 webform_report_grid.data:
   path: '/webform-report/{webform_report}/data'
@@ -78,6 +83,7 @@ webform_report_grid.data:
     _controller: '\Drupal\webform_report_grid\Controller\ReportController::data'
   requirements:
     _entity_access: 'webform_report.view'
+    webform_report: '\d+'
 
 webform_report_grid.fields:
   path: '/webform-report/{webform_report}/fields'
@@ -85,6 +91,7 @@ webform_report_grid.fields:
     _controller: '\Drupal\webform_report_grid\Controller\ReportController::fields'
   requirements:
     _entity_access: 'webform_report.view'
+    webform_report: '\d+'
 
 webform_report_grid.person:
   path: '/webform-report/{webform_report}/person/{index}'
@@ -92,6 +99,8 @@ webform_report_grid.person:
     _controller: '\Drupal\webform_report_grid\Controller\ReportController::person'
   requirements:
     _entity_access: 'webform_report.view'
+    webform_report: '\d+'
+    index: '\d+'
 
 webform_report_grid.save:
   path: '/webform-report/{webform_report}/save'
@@ -100,6 +109,7 @@ webform_report_grid.save:
   methods: [POST]
   requirements:
     _entity_access: 'webform_report.update'
+    webform_report: '\d+'
 
 webform_report_grid.switch:
   path: '/webform-report/switch'
@@ -114,6 +124,7 @@ webform_report_grid.export_csv:
     _controller: '\Drupal\webform_report_grid\Controller\ExportController::csv'
   requirements:
     _entity_access: 'webform_report.view'
+    webform_report: '\d+'
 
 webform_report_grid.export_xlsx:
   path: '/webform-report/{webform_report}/export.xlsx'
@@ -121,14 +132,7 @@ webform_report_grid.export_xlsx:
     _controller: '\Drupal\webform_report_grid\Controller\ExportController::xlsx'
   requirements:
     _entity_access: 'webform_report.view'
-
-webform_report_grid.view_front:
-  path: '/webform-report/{webform_report}/front'
-  defaults:
-    _controller: '\Drupal\webform_report_grid\Controller\ReportController::viewFront'
-    _title_callback: '\Drupal\webform_report_grid\Controller\ReportController::title'
-  requirements:
-    _entity_access: 'webform_report.view'
+    webform_report: '\d+'
 
 # Anonymous share-by-token routes (read-only viewer + JSON, no exports).
 # The token in the path IS the credential: no permission required.
@@ -136,7 +140,6 @@ webform_report_grid.shared:
   path: '/webform-report/s/{token}'
   defaults:
     _controller: '\Drupal\webform_report_grid\Controller\ReportController::shared'
-    _title_callback: '\Drupal\webform_report_grid\Controller\ReportController::title'
   requirements:
     _access: 'TRUE'
 
@@ -153,3 +156,4 @@ webform_report_grid.shared_person:
     _controller: '\Drupal\webform_report_grid\Controller\ReportController::sharedPerson'
   requirements:
     _access: 'TRUE'
+    index: '\d+'

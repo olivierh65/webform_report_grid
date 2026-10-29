@@ -7,4 +7,4 @@ services:
     arguments: ['@entity_type.manager', '@current_user', '@webform_report_grid.field_discovery']
   webform_report_grid.export:
     class: Drupal\webform_report_grid\Service\ReportExportService
-    arguments: ['@webform_report_grid.data']
+    arguments: ['@webform_report_grid.data', '@webform_report_grid.field_discovery']

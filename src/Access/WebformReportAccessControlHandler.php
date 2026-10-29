@@ -35,16 +35,18 @@ class WebformReportAccessControlHandler extends EntityAccessControlHandler {
         if ($account->hasPermission('view webform report')) {
           return AccessResult::allowed()->cachePerPermissions();
         }
-        // Per-report roles.
+        // Per-report roles. The anonymous pseudo-role is never honored here:
+        // anonymous access must use the share token instead.
         if ($entity instanceof \Drupal\webform_report_grid\Entity\WebformReportInterface) {
-          $allowed = array_intersect($entity->getViewerRoles(), $account->getRoles());
+          $viewer_roles = array_diff($entity->getViewerRoles(), [AccountInterface::ANONYMOUS_ROLE]);
+          $allowed = array_intersect($viewer_roles, $account->getRoles());
           if ($allowed) {
             return AccessResult::allowed()
-              ->cachePerPermissions()
+              ->addCacheContexts(['user.roles'])
               ->addCacheableDependency($entity);
           }
         }
-        return AccessResult::neutral()->cachePerPermissions()->addCacheableDependency($entity);
+        return AccessResult::neutral()->addCacheContexts(['user.roles'])->addCacheableDependency($entity);
 
       case 'update':
       case 'delete':

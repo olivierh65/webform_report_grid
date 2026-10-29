@@ -24,6 +24,13 @@ class ReportExportService {
   public function tables(WebformReportInterface $report, string $filter_value = ''): array {
     $fields = $this->discovery->getFields($report->getWebformId());
     $rows = $this->data->loadRows($report, $filter_value);
+    $see_contacts = $this->data->canSeeContacts();
+    // Exports must honor the same privacy rules as the viewer.
+    $display_rows = $see_contacts ? $rows : $this->data->publicRows($report->getWebformId(), $rows, TRUE);
+    $contact_keys = $see_contacts ? [] : $this->data->getContactKeys($report->getWebformId());
+    $name = fn(int $i): string => $see_contacts
+      ? (string) ($rows[$i]['full'] ?? '')
+      : (string) ($display_rows[$i]['n'] ?? '');
     $aggs = ReportFieldDiscovery::aggregations();
     $summary = [['Group', 'Field', 'Summary', 'Value', 'Names']];
     foreach ($this->flattenCards($report->getCards()) as $card) {
@@ -32,24 +39,31 @@ class ReportExportService {
         continue;
       }
       $field = $fields[$key];
+      // Never aggregate a contact field without the contacts permission.
+      if (!$see_contacts && (!empty($field['contact']) || in_array($key, $contact_keys, TRUE))) {
+        continue;
+      }
       $agg_label = $aggs[$field['kind']][$card['agg']] ?? $card['agg'];
       $res = $this->data->aggregate($card, $field, $rows);
       if (isset($res['rep'])) {
         foreach ($res['groups'] as $value => $indexes) {
-          $names = array_map(fn($i) => $rows[$i]['full'], $indexes);
+          $names = array_map(fn($i) => $name((int) $i), $indexes);
           $option = $field['options'][$value] ?? $value;
           $summary[] = [$field['group'], $field['label'] . ' : ' . $option, 'Breakdown', count($indexes), implode(', ', $names)];
         }
       }
       else {
-        $names = array_map(fn($w) => $rows[is_array($w) ? $w['i'] : $w]['full'], $res['who']);
+        $names = array_map(fn($w) => $name((int) (is_array($w) ? $w['i'] : $w)), $res['who']);
         $summary[] = [$field['group'], $card['label'] ?? $field['label'], $agg_label, $res['val'], implode(', ', $names)];
       }
     }
     $keys = array_keys($fields);
+    if (!$see_contacts) {
+      $keys = array_values(array_filter($keys, fn($k) => empty($fields[$k]['contact']) && !in_array($k, $contact_keys, TRUE)));
+    }
     $per_person = [array_merge(['Name'], array_map(fn($k) => $fields[$k]['group'] . ' – ' . $fields[$k]['label'], $keys))];
-    foreach ($rows as $row) {
-      $line = [$row['full']];
+    foreach ($display_rows as $row) {
+      $line = [$see_contacts ? $row['full'] : $row['n']];
       foreach ($keys as $key) {
         $value = $row['f'][$key] ?? '';
         $line[] = is_array($value) ? implode(',', $value) : $value;
@@ -57,6 +71,26 @@ class ReportExportService {
       $per_person[] = $line;
     }
     return [$summary, $per_person];
+  }
+
+  /**
+   * Neutralizes spreadsheet formula injection (CSV and XLSX).
+   */
+  protected function sanitizeCell(mixed $value): mixed {
+    if (is_string($value) && $value !== '' && preg_match('/^[=+\-@\t\r]/', $value)) {
+      return "'" . $value;
+    }
+    return $value;
+  }
+
+  /**
+   * Applies sanitizeCell() to every cell of a table.
+   */
+  protected function sanitizeTable(array $table): array {
+    return array_map(
+      fn(array $line) => array_map(fn($value) => $this->sanitizeCell($value), $line),
+      $table,
+    );
   }
 
   /**
@@ -95,6 +129,7 @@ class ReportExportService {
    */
   public function csvResponse(WebformReportInterface $report, string $filter_value = ''): Response {
     [$summary] = $this->tables($report, $filter_value);
+    $summary = $this->sanitizeTable($summary);
     $response = new StreamedResponse(function () use ($summary) {
       $out = fopen('php://output', 'w');
       fwrite($out, "\xEF\xBB\xBF");
@@ -113,6 +148,8 @@ class ReportExportService {
    */
   public function xlsxResponse(WebformReportInterface $report, string $filter_value = ''): Response {
     [$summary, $per_person] = $this->tables($report, $filter_value);
+    $summary = $this->sanitizeTable($summary);
+    $per_person = $this->sanitizeTable($per_person);
     $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
     $sheet = $spreadsheet->getActiveSheet();
     $sheet->setTitle('Summary');

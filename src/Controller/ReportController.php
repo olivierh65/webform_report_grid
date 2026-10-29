@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Drupal\webform_report_grid\Controller;
 
+use Drupal\Core\Cache\Cache;
+use Drupal\Core\Cache\CacheableJsonResponse;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\webform_report_grid\Entity\WebformReportInterface;
@@ -48,6 +50,9 @@ class ReportController extends ControllerBase {
       ->loadByProperties(['webform' => $webform]);
     $items = [];
     foreach ($reports as $report) {
+      if (!$report->access('view')) {
+        continue;
+      }
       $items[] = $report->toLink($report->label() . ' (' . count($report->getCards()) . ' cards)', 'canonical')->toRenderable();
     }
     return [
@@ -61,7 +66,9 @@ class ReportController extends ControllerBase {
    * Grid viewer: palette + cards + dialogs, data loaded as JSON.
    */
   public function view(WebformReportInterface $webform_report): array {
-    return $this->buildView($webform_report, FALSE);
+    // This route is protected by "view" access only: render the read-only
+    // viewer. Editing lives on the /build route (update access).
+    return $this->buildView($webform_report, TRUE);
   }
 
   /**
@@ -115,14 +122,6 @@ class ReportController extends ControllerBase {
   }
 
   /**
-   * Validates the ?share= token for a report (data/person JSON endpoints).
-   */
-  protected function validShareToken(WebformReportInterface $report, Request $request): bool {
-    $token = (string) $request->query->get('share', '');
-    return $token !== '' && hash_equals($report->getShareToken(), $token) && $report->isShareEnabled();
-  }
-
-  /**
    * Builds the view array for the grid.
    *
    * @param \Drupal\webform_report_grid\Entity\WebformReportInterface $webform_report
@@ -148,45 +147,73 @@ class ReportController extends ControllerBase {
     $data_url = $share_token
       ? '/webform-report/s/' . $share_token . '/data'
       : '/webform-report/' . $webform_report->id() . '/data';
+    $js_settings = [
+      'reportId' => $webform_report->id(),
+      'cards' => $webform_report->getCards(),
+      'filterField' => $webform_report->getFilterField(),
+      'dataUrl' => $data_url,
+      'readOnly' => $read_only,
+      'display' => $display,
+      'shareToken' => $share_token,
+    ];
+    // The save endpoint needs a CSRF token; never expose it in read-only or
+    // anonymous share mode.
+    if (!$read_only) {
+      $js_settings['csrfToken'] = \Drupal::csrfToken()->get('webform-report/' . $webform_report->id() . '/save');
+    }
+    $attached = [
+      'library' => ['webform_report_grid/viewer'],
+      'drupalSettings' => ['webformReportGrid' => $js_settings],
+    ];
+    if ($share_token !== NULL) {
+      // Do not leak the secret token through the Referer header.
+      $attached['html_head'][] = [
+        ['#tag' => 'meta', '#attributes' => ['name' => 'referrer', 'content' => 'no-referrer']],
+        'webform_report_grid_share_referrer',
+      ];
+    }
+    $cache = [
+      'tags' => Cache::mergeTags($webform_report->getCacheTags(), ['config:webform_report_grid.settings']),
+      'contexts' => $share_token !== NULL ? ['url.path'] : [],
+    ];
+    if (!$read_only) {
+      // CSRF tokens are session-bound: never serve a cached token to another
+      // session, and invalidate the editable page when the report changes.
+      $cache['contexts'][] = 'session';
+    }
     return [
       '#theme' => 'webform_report_grid_view',
       '#title' => $webform_report->label(),
       '#report_id' => $webform_report->id(),
       '#read_only' => $read_only,
       '#shared' => $share_token !== NULL,
-      '#attached' => [
-        'library' => ['webform_report_grid/viewer'],
-        'drupalSettings' => [
-          'webformReportGrid' => [
-            'reportId' => $webform_report->id(),
-            'cards' => $webform_report->getCards(),
-            'filterField' => $webform_report->getFilterField(),
-            'dataUrl' => $data_url,
-            'csrfToken' => \Drupal::csrfToken()->get('webform-report/' . $webform_report->id() . '/save'),
-            'readOnly' => $read_only,
-            'display' => $display,
-            'shareToken' => $share_token,
-          ],
-        ],
-      ],
-      // Share route must vary cache by URL (token in path).
-      '#cache' => $share_token ? ['contexts' => ['url.path']] : [],
+      '#attached' => $attached,
+      '#cache' => $cache,
     ];
   }
 
   /**
    * JSON: groups + fields + rows + aggregations (powers the viewer).
    */
-  public function data(WebformReportInterface $webform_report, Request $request): JsonResponse {
+  public function data(WebformReportInterface $webform_report, Request $request): CacheableJsonResponse {
     $filter = $request->query->get('filter', '');
     $rows = $this->data->loadRows($webform_report, (string) $filter);
-    return new JsonResponse([
+    $response = new CacheableJsonResponse([
       'groups' => $this->discovery->getGroups($webform_report->getWebformId()),
-      'rows' => $this->data->publicRows($rows),
+      'rows' => $this->data->publicRows($webform_report->getWebformId(), $rows),
       'total' => count($rows),
+      'truncated' => $this->data->wasTruncated(),
       'aggregations' => ReportFieldDiscovery::aggregations(),
       'canSeeContacts' => $this->data->canSeeContacts(),
     ]);
+    $response->addCacheableDependency($webform_report);
+    $response->getCacheableMetadata()->addCacheTags([
+      'config:webform_report_grid.settings',
+      'webform_submission_list',
+      'config:webform.webform.' . $webform_report->getWebformId(),
+    ]);
+    $response->getCacheableMetadata()->addCacheContexts(['user.permissions', 'url.query_args:filter']);
+    return $response;
   }
 
   /**
@@ -203,13 +230,22 @@ class ReportController extends ControllerBase {
     }
     $filter = $request->query->get('filter', '');
     $rows = $this->data->loadRows($report, (string) $filter);
-    return new JsonResponse([
+    $response = new CacheableJsonResponse([
       'groups' => $this->discovery->getGroups($report->getWebformId()),
-      'rows' => $this->data->publicRows($rows),
+      'rows' => $this->data->publicRows($report->getWebformId(), $rows, TRUE),
       'total' => count($rows),
+      'truncated' => $this->data->wasTruncated(),
       'aggregations' => ReportFieldDiscovery::aggregations(),
       'canSeeContacts' => FALSE,
     ]);
+    $response->addCacheableDependency($report);
+    $response->getCacheableMetadata()->addCacheTags([
+      'config:webform_report_grid.settings',
+      'webform_submission_list',
+      'config:webform.webform.' . $report->getWebformId(),
+    ]);
+    $response->getCacheableMetadata()->addCacheContexts(['url.path', 'url.query_args:filter']);
+    return $response;
   }
 
   /**
@@ -454,7 +490,7 @@ class ReportController extends ControllerBase {
     $report_id = (string) $request->query->get('report', '');
     if ($webform_id !== '' && $report_id !== '') {
       $report = $this->entityTypeManager()->getStorage('webform_report')->load($report_id);
-      if ($report) {
+      if ($report && $report->access('view')) {
         return new RedirectResponse($report->toUrl()->toString());
       }
       $this->messenger()->addError($this->t('Report @id not found.', ['@id' => $report_id]));
@@ -469,6 +505,9 @@ class ReportController extends ControllerBase {
     $reports = [];
     if ($webform_id !== '') {
       foreach ($this->entityTypeManager()->getStorage('webform_report')->loadByProperties(['webform' => $webform_id]) as $id => $report) {
+        if (!$report->access('view')) {
+          continue;
+        }
         $reports[$id] = $report->label() . ' (' . count($report->getCards()) . ' cards)';
       }
     }
@@ -494,20 +533,21 @@ class ReportController extends ControllerBase {
     }
     $row = $rows[$index];
     $fields = $this->discovery->getFields($webform_report->getWebformId());
-    $groups = [];
-    foreach ($fields as $key => $field) {
-      if (!array_key_exists($key, $row['f'])) {
-        continue;
-      }
-      $value = $row['f'][$key];
-      $label = $field['options'][(string) $value] ?? (is_array($value) ? implode(', ', $value) : (string) $value);
-      $groups[$field['group']][] = $field['label'] . (is_numeric($value) && $value != 1 ? ' : ' . $value : ($field['kind'] === 'r' ? ' ' . $label : ''));
-    }
-    return new JsonResponse([
-      'name' => $this->data->canSeeContacts() ? $row['full'] : $row['n'],
-      'contacts' => $this->data->canSeeContacts() ? $row['contacts'] : NULL,
-      'groups' => $groups,
+    $see = $this->data->canSeeContacts();
+    $contact_keys = $this->data->getContactKeys($webform_report->getWebformId());
+    $response = new CacheableJsonResponse([
+      'name' => $see ? $row['full'] : $row['n'],
+      'contacts' => $see ? $row['contacts'] : NULL,
+      'groups' => $this->buildPersonGroups($fields, $row, $see, $contact_keys),
     ]);
+    $response->addCacheableDependency($webform_report);
+    $response->getCacheableMetadata()->addCacheTags([
+      'config:webform_report_grid.settings',
+      'webform_submission_list',
+      'config:webform.webform.' . $webform_report->getWebformId(),
+    ]);
+    $response->getCacheableMetadata()->addCacheContexts(['user.permissions', 'url.path', 'url.query_args:filter']);
+    return $response;
   }
 
   /**
@@ -527,20 +567,55 @@ class ReportController extends ControllerBase {
     }
     $row = $rows[$index];
     $fields = $this->discovery->getFields($report->getWebformId());
+    $contact_keys = $this->data->getContactKeys($report->getWebformId());
+    $response = new CacheableJsonResponse([
+      'name' => $row['n'],
+      'contacts' => NULL,
+      'groups' => $this->buildPersonGroups($fields, $row, FALSE, $contact_keys),
+    ]);
+    $response->addCacheableDependency($report);
+    $response->getCacheableMetadata()->addCacheTags([
+      'config:webform_report_grid.settings',
+      'webform_submission_list',
+      'config:webform.webform.' . $report->getWebformId(),
+    ]);
+    $response->getCacheableMetadata()->addCacheContexts(['url.path', 'url.query_args:filter']);
+    return $response;
+  }
+
+  /**
+   * Builds the grouped field list for a person detail dialog.
+   */
+  protected function buildPersonGroups(array $fields, array $row, bool $see_contacts, array $contact_keys): array {
     $groups = [];
     foreach ($fields as $key => $field) {
       if (!array_key_exists($key, $row['f'])) {
         continue;
       }
+      if (!$see_contacts && (!empty($field['contact']) || in_array($key, $contact_keys, TRUE))) {
+        continue;
+      }
       $value = $row['f'][$key];
-      $label = $field['options'][(string) $value] ?? (is_array($value) ? implode(', ', $value) : (string) $value);
-      $groups[$field['group']][] = $field['label'] . (is_numeric($value) && $value != 1 ? ' : ' . $value : ($field['kind'] === 'r' ? ' ' . $label : ''));
+      $entry = (string) $field['label'];
+      if (is_array($value)) {
+        $labels = [];
+        foreach ($value as $item) {
+          $labels[] = (string) ($field['options'][(string) $item] ?? $item);
+        }
+        $entry .= ' ' . implode(', ', $labels);
+      }
+      else {
+        $label = (string) ($field['options'][(string) $value] ?? $value);
+        if (($field['kind'] ?? '') === 'r') {
+          $entry .= ' ' . $label;
+        }
+        elseif (is_numeric($value) && $value != 1) {
+          $entry .= ' : ' . $value;
+        }
+      }
+      $groups[$field['group']][] = $entry;
     }
-    return new JsonResponse([
-      'name' => $row['n'],
-      'contacts' => NULL,
-      'groups' => $groups,
-    ]);
+    return $groups;
   }
 
 }

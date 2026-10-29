@@ -17,6 +17,16 @@ use Drupal\webform_report_grid\Entity\WebformReportInterface;
  */
 class ReportDataService {
 
+  /**
+   * Hard cap on submissions loaded in a single request (DoS protection).
+   */
+  private const MAX_ROWS = 5000;
+
+  /**
+   * Whether the last loadRows() call was truncated by MAX_ROWS.
+   */
+  protected bool $lastLoadTruncated = FALSE;
+
   public function __construct(
     protected EntityTypeManagerInterface $entityTypeManager,
     protected AccountInterface $currentUser,
@@ -36,14 +46,20 @@ class ReportDataService {
    * @return array<int, array{n: string, full: string, contacts: array, f: array}>
    */
   public function loadRows(WebformReportInterface $report, string $filter_value = ''): array {
+    $this->lastLoadTruncated = FALSE;
     $webform_id = $report->getWebformId();
     $storage = $this->entityTypeManager->getStorage('webform_submission');
     $ids = $storage->getQuery()
       ->condition('webform_id', $webform_id)
       ->accessCheck(FALSE)
+      ->range(0, self::MAX_ROWS + 1)
       ->execute();
     if (!$ids) {
       return [];
+    }
+    if (count($ids) > self::MAX_ROWS) {
+      $this->lastLoadTruncated = TRUE;
+      $ids = array_slice($ids, 0, self::MAX_ROWS, TRUE);
     }
     /** @var \Drupal\webform\Entity\WebformSubmission[] $submissions */
     $submissions = $storage->loadMultiple($ids);
@@ -52,22 +68,36 @@ class ReportDataService {
     $contact_keys = $this->getContactKeys($webform_id);
     $rows = [];
     foreach ($submissions as $submission) {
-      $data = $submission->getData();
+      // Normalize once so the global filter also works on composite subfields.
+      $data = $this->normalizeComposites($submission->getData());
       if ($filter_value !== '' && $filter_field !== '') {
-        if ((string) ($data[$filter_field] ?? '') !== $filter_value) {
+        $raw = $data[$filter_field] ?? '';
+        if (is_array($raw)) {
+          $raw = implode(',', array_map('strval', array_filter($raw, static fn($v) => $v !== '' && $v !== NULL)));
+        }
+        if ((string) $raw !== $filter_value) {
           continue;
         }
       }
-      $rows[] = $this->flatten($data, $contact_keys);
+      $row = $this->flatten($data, $contact_keys);
+      $row['_i'] = count($rows);
+      $rows[] = $row;
     }
 
     return $rows;
   }
 
   /**
+   * Whether the last loadRows() call was truncated.
+   */
+  public function wasTruncated(): bool {
+    return $this->lastLoadTruncated;
+  }
+
+  /**
    * Returns contact field keys for a webform: ['first_name' => 'key', 'last_name' => 'key', 'email' => 'key', 'phone' => 'key'].
    */
-  protected function getContactKeys(string $webform_id): array {
+  public function getContactKeys(string $webform_id): array {
     $fields = $this->discovery->getFields($webform_id);
     $contact_keys = [];
     foreach ($fields as $key => $field) {
@@ -85,6 +115,19 @@ class ReportDataService {
           elseif ($norm === 'tel') {
             $norm = 'phone';
           }
+          $contact_keys[$norm] ??= $key;
+          continue;
+        }
+        // 1b) Simple key ("email", "phone", "first_name", "contact_email").
+        if (preg_match('/(?:^|__|_)(first_name|last_name|first|last|email|e_mail|phone|tel)$/i', (string) $key, $m)) {
+          $norm = strtolower($m[1]);
+          $norm = match ($norm) {
+            'first' => 'first_name',
+            'last' => 'last_name',
+            'tel' => 'phone',
+            'e_mail' => 'email',
+            default => $norm,
+          };
           $contact_keys[$norm] ??= $key;
           continue;
         }
@@ -394,7 +437,7 @@ class ReportDataService {
     };
 
     // Helper to get who indexes for a row (handles composite).
-    $getWho = function ($row, $value) use ($card, $key, $is_composite, $kind) {
+    $getWho = function ($row, $value) use ($card, $key, $is_composite, $kind, $rows) {
       if ($is_composite) {
         // For composite, we need to check which source fields contributed.
         $source_fields = $card['source_fields'] ?? [$key];
@@ -524,9 +567,24 @@ class ReportDataService {
           }
         }
       }
-      return $agg === 'list'
-        ? ['val' => count($who), 'suffix' => '', 'who' => $who]
-        : ['val' => count($who), 'suffix' => '', 'who' => $who];
+      if ($agg === 'list') {
+        $values = [];
+        foreach ($rows as $row) {
+          $sources = $is_composite ? ($card['source_fields'] ?? [$key]) : [$key];
+          foreach ($sources as $src) {
+            if (!array_key_exists($src, $row['f'])) {
+              continue;
+            }
+            foreach ((array) $row['f'][$src] as $value) {
+              if ($value !== '' && $value !== NULL) {
+                $values[(string) $value] = TRUE;
+              }
+            }
+          }
+        }
+        return ['val' => count($who), 'suffix' => '', 'who' => $who, 'values' => array_keys($values)];
+      }
+      return ['val' => count($who), 'suffix' => '', 'who' => $who];
     }
 
     // Boolean: sum of checked, pct over filtered respondents.
@@ -629,17 +687,44 @@ class ReportDataService {
 
   /**
    * Public payload for the viewer: rows with privacy applied.
+   *
+   * Contact values are removed from "f" (not merely hidden in "contacts") so
+   * the JSON payload itself cannot leak emails, phones or full names.
+   *
+   * @param string $webform_id
+   *   Webform ID whose contact fields must be redacted.
+   * @param array $rows
+   *   Rows returned by loadRows().
+   * @param bool $force_redact
+   *   TRUE for anonymous share links, regardless of the viewer's permissions.
    */
-  public function publicRows(array $rows): array {
-    $see = $this->canSeeContacts();
+  public function publicRows(string $webform_id, array $rows, bool $force_redact = FALSE): array {
+    $see = !$force_redact && $this->canSeeContacts();
+    $contact_keys = $see ? [] : $this->getContactKeys($webform_id);
     $out = [];
     foreach ($rows as $row) {
-      $out[] = [
+      $item = [
         'n' => $see ? $row['full'] : $row['n'],
-        'f' => $row['f'],
-      ] + ($see ? ['contacts' => $row['contacts']] : []);
+        'f' => $see ? $row['f'] : $this->stripContactKeys($row['f'], $contact_keys),
+      ];
+      if ($see) {
+        $item['contacts'] = $row['contacts'];
+      }
+      $out[] = $item;
     }
     return $out;
+  }
+
+  /**
+   * Removes contact values from a flattened field map.
+   */
+  protected function stripContactKeys(array $fields, array $contact_keys): array {
+    foreach (array_keys($fields) as $key) {
+      if (in_array($key, $contact_keys, TRUE) || preg_match('/(?:^|__|_)(first_name|last_name|first|last|email|e_mail|phone|tel)$/i', (string) $key)) {
+        unset($fields[$key]);
+      }
+    }
+    return $fields;
   }
 
 }

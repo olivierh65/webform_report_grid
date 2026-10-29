@@ -7,6 +7,11 @@
 
 declare(strict_types=1);
 
+use Drupal\Core\Access\AccessResult;
+use Drupal\Core\Field\FieldDefinitionInterface;
+use Drupal\Core\Field\FieldItemListInterface;
+use Drupal\Core\Session\AccountInterface;
+
 /**
  * Implements hook_theme().
  */
@@ -41,4 +46,21 @@ function webform_report_grid_help($route_name, $route_match) {
     return ['#markup' => t('Grid reports aggregate submissions of any webform. Pick a webform, drop its fields on the grid and choose a summary (sum, count, average, breakdown...).')];
   }
   return NULL;
+}
+
+/**
+ * Implements hook_entity_field_access().
+ *
+ * The share token is a secret: hide it (and the share flag) from JSON:API and
+ * any non-administrative field access.
+ */
+function webform_report_grid_entity_field_access($operation, FieldDefinitionInterface $field_definition, AccountInterface $account, ?FieldItemListInterface $items = NULL) {
+  if ($field_definition->getTargetEntityTypeId() !== 'webform_report') {
+    return AccessResult::neutral();
+  }
+  if (!in_array($field_definition->getName(), ['share_token', 'share_enabled'], TRUE)) {
+    return AccessResult::neutral();
+  }
+  return AccessResult::forbiddenIf(!$account->hasPermission('administer webform reports'))
+    ->addCacheContexts(['user.permissions']);
 }

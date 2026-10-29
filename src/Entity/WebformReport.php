@@ -9,6 +9,7 @@ use Drupal\Core\Entity\EntityChangedTrait;
 use Drupal\Core\Entity\EntityStorageInterface;
 use Drupal\Core\Entity\EntityTypeInterface;
 use Drupal\Core\Field\BaseFieldDefinition;
+use Drupal\Core\Session\AccountInterface;
 use Drupal\user\EntityOwnerTrait;
 use Drupal\webform\Entity\Webform;
 
@@ -35,7 +36,6 @@ use Drupal\webform\Entity\Webform;
  *     "views_data" = "Drupal\views\EntityViewsData",
  *   },
  *   base_table = "webform_report",
- *   data_table = "webform_report_field_data",
  *   translatable = FALSE,
  *   admin_permission = "administer webform reports",
  *   entity_keys = {
@@ -166,13 +166,16 @@ class WebformReport extends ContentEntityBase implements WebformReportInterface 
    * Allowed values callback for the viewer_roles field.
    *
    * @return array<string, string>
-   *   Role ID => label, excluding anonymous/authenticated pseudo-roles is
-   *   kept simple: all roles are listed, anonymous included (harmless since
-   *   the share link covers the anonymous use case explicitly).
+   *   Role ID => label. The anonymous role is excluded on purpose: anonymous
+   *   access must go through the explicit share token, which is read-only and
+   *   never exposes exports or contact details.
    */
   public static function viewerRoleOptions(): array {
     $options = [];
     foreach (\Drupal::entityTypeManager()->getStorage('user_role')->loadMultiple() as $id => $role) {
+      if ($id === AccountInterface::ANONYMOUS_ROLE) {
+        continue;
+      }
       $options[$id] = $role->label();
     }
     return $options;

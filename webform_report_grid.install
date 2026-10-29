@@ -225,3 +225,23 @@ function webform_report_grid_update_10004(): string {
     '@skipped' => $skipped,
   ])->render();
 }
+
+/**
+ * Remove the anonymous pseudo-role from existing viewer_roles selections.
+ *
+ * Anonymous access must go through the share token (read-only, no exports and
+ * no contact details), never through entity view access.
+ */
+function webform_report_grid_update_10006(): string {
+  $storage = \Drupal::entityTypeManager()->getStorage('webform_report');
+  $count = 0;
+  foreach ($storage->loadMultiple() as $report) {
+    $roles = $report->getViewerRoles();
+    if (in_array('anonymous', $roles, TRUE)) {
+      $report->setViewerRoles(array_values(array_diff($roles, ['anonymous'])));
+      $report->save();
+      $count++;
+    }
+  }
+  return t('Removed the anonymous role from @count grid report(s).', ['@count' => $count])->render();
+}

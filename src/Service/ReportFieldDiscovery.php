@@ -208,6 +208,8 @@ class ReportFieldDiscovery {
         'label' => (string) $title,
         'kind' => $kind,
         'options' => $this->resolveOptions($element, $webform_id),
+        // Simple email/tel/name fields are contact data too.
+        'contact' => $this->isContactElement($type, (string) $key),
       ]);
     }
   }
@@ -270,6 +272,19 @@ class ReportFieldDiscovery {
         'contact' => in_array($sub_key, ['first', 'first_name', 'last', 'last_name', 'email', 'phone'], TRUE),
       ]);
     }
+  }
+
+  /**
+   * Whether a simple (non-composite) element holds contact data.
+   *
+   * Covers email/tel element types and conventional field keys such as
+   * "email", "phone", "first_name" or "identite__last_name".
+   */
+  private function isContactElement(string $type, string $key): bool {
+    if (in_array($type, ['email', 'tel', 'webform_email', 'webform_tel'], TRUE)) {
+      return TRUE;
+    }
+    return (bool) preg_match('/(?:^|__|_)(first_name|last_name|first|last|email|e_mail|phone|tel)$/i', $key);
   }
 
   /**
