@@ -27,6 +27,11 @@ class ReportDataService {
    */
   protected bool $lastLoadTruncated = FALSE;
 
+  /**
+   * Sentinel returned when a value is excluded by a card value filter.
+   */
+  private ?\stdClass $filteredOut = NULL;
+
   public function __construct(
     protected EntityTypeManagerInterface $entityTypeManager,
     protected AccountInterface $currentUser,
@@ -38,6 +43,26 @@ class ReportDataService {
    */
   public function canSeeContacts(): bool {
     return $this->currentUser->hasPermission('view webform report contacts');
+  }
+
+  /**
+   * Returns the sentinel used for values excluded by a value filter.
+   */
+  private function filteredOut(): \stdClass {
+    return $this->filteredOut ??= new \stdClass();
+  }
+
+  /**
+   * Maps a boolean-ish value to the label shown in the viewer.
+   */
+  private function booleanLabel(mixed $value): string {
+    if ($value === NULL || $value === '' || $value === '—') {
+      return 'Non répondu';
+    }
+    if ($value === 0 || $value === '0' || $value === FALSE) {
+      return 'Non';
+    }
+    return 'Oui';
   }
 
   /**
@@ -427,10 +452,23 @@ class ReportDataService {
       if ($is_composite) {
         return $this->getCombinedValue($card, $row);
       }
+      $val = $row['f'][$key] ?? NULL;
+      // Apply the card-level value filter exactly like the viewer JS.
+      $value_filter = $card['value_filter'] ?? NULL;
+      if (is_array($value_filter) && $value_filter !== []) {
+        if (is_array($val)) {
+          $val = array_values(array_filter($val, fn($v) => $this->matchesValueFilter($v, $value_filter)));
+          if ($val === []) {
+            return $this->filteredOut();
+          }
+        }
+        elseif (!$this->matchesValueFilter($val, $value_filter)) {
+          return $this->filteredOut();
+        }
+      }
       // For boolean kind, missing key should be falsy (not '—').
       // For choice fields, missing key shows as '—' in UI but should not count.
-      $val = $row['f'][$key] ?? null;
-      if ($val === null && $kind === 'r') {
+      if ($val === NULL && $kind === 'r') {
         return '—'; // Display placeholder for choice fields.
       }
       return $val;
@@ -467,60 +505,25 @@ class ReportDataService {
       $counts = [];
       $groups = [];
       foreach ($rows as $i => $row) {
-        // For composite cards in rep mode, collect ALL values from all source fields (no deduplication).
-        if ($is_composite) {
-          $source_fields = $card['source_fields'] ?? [$key];
-          $mode = $card['mode'] ?? 'union';
-          $value_filter = $card['value_filter'] ?? null;
-          $value_filters = $card['value_filters'] ?? null;
-          $values = [];
-          foreach ($source_fields as $src) {
-            if (!array_key_exists($src, $row['f'])) {
-              continue;
-            }
-            $val = $row['f'][$src];
-            // Apply per-source value_filter (detail mode).
-            if ($value_filters !== null && isset($value_filters[$src]) && is_array($value_filters[$src])) {
-              $src_filter = $value_filters[$src];
-              if (is_array($val)) {
-                $val = array_values(array_filter($val, fn($v) => $this->matchesValueFilter($v, $src_filter)));
-                if (empty($val)) {
-                  continue;
-                }
-              }
-              elseif (!$this->matchesValueFilter($val, $src_filter)) {
-                continue;
-              }
-            }
-            if (is_array($val)) {
-              $values = array_merge($values, $val);
-            }
-            else {
-              $values[] = $val;
-            }
-          }
-          // Apply card-level value_filter.
-          if ($value_filter !== null && is_array($value_filter)) {
-            $values = array_values(array_filter($values, fn($v) => $this->matchesValueFilter($v, $value_filter)));
-          }
-          // For rep aggregation, use ALL values (no deduplication).
-          foreach ($values as $v) {
-            $counts[(string) $v] = ($counts[(string) $v] ?? 0) + 1;
-            $groups[(string) $v][] = $i;
-          }
+        $value = $getValue($row);
+        if ($value === $this->filteredOut()) {
+          continue;
         }
-        else {
-          $value = $getValue($row) ?? '—';
-          if (is_array($value)) {
-            foreach ($value as $v) {
-              $counts[(string) $v] = ($counts[(string) $v] ?? 0) + 1;
-              $groups[(string) $v][] = $i;
-            }
-          }
-          else {
-            $counts[(string) $value] = ($counts[(string) $value] ?? 0) + 1;
-            $groups[(string) $value][] = $i;
-          }
+        // Composite cards with no usable value are filtered out, not counted
+        // as "non répondu" (mirrors the viewer JS).
+        if ($is_composite && $value === NULL) {
+          continue;
+        }
+        $value ??= '—';
+        $row_index = $row['_i'] ?? $i;
+        // Union values are already deduplicated by getCombinedValue(); keep a
+        // final unique pass so repeated source values never inflate counts.
+        $values = is_array($value)
+          ? array_values(array_unique(array_map('strval', $value)))
+          : [(string) $value];
+        foreach ($values as $v) {
+          $counts[$v] = ($counts[$v] ?? 0) + 1;
+          $groups[$v][] = $row_index;
         }
       }
       return ['rep' => $counts, 'groups' => $groups];
@@ -593,60 +596,23 @@ class ReportDataService {
       $counts = [];
       $groups = [];
       foreach ($rows as $i => $row) {
-        // For composite cards, collect ALL values from all source fields (no deduplication).
-        if ($is_composite) {
-          $source_fields = $card['source_fields'] ?? [$key];
-          $mode = $card['mode'] ?? 'union';
-          $value_filter = $card['value_filter'] ?? null;
-          $value_filters = $card['value_filters'] ?? null;
-          $values = [];
-          foreach ($source_fields as $src) {
-            if (!array_key_exists($src, $row['f'])) {
-              continue;
-            }
-            $val = $row['f'][$src];
-            // Apply per-source value_filter (detail mode).
-            if ($value_filters !== null && isset($value_filters[$src]) && is_array($value_filters[$src])) {
-              $src_filter = $value_filters[$src];
-              if (is_array($val)) {
-                $val = array_values(array_filter($val, fn($v) => $this->matchesValueFilter($v, $src_filter)));
-                if (empty($val)) {
-                  continue;
-                }
-              }
-              elseif (!$this->matchesValueFilter($val, $src_filter)) {
-                continue;
-              }
-            }
-            if (is_array($val)) {
-              $values = array_merge($values, $val);
-            }
-            else {
-              $values[] = $val;
-            }
-          }
-          // Apply card-level value_filter.
-          if ($value_filter !== null && is_array($value_filter)) {
-            $values = array_values(array_filter($values, fn($v) => $this->matchesValueFilter($v, $value_filter)));
-          }
-          // For rep aggregation, use ALL values (no deduplication).
-          foreach ($values as $v) {
-            $label = $v ? 'Oui' : 'Non';
-            if ($v === NULL || $v === '') {
-              $label = 'Non répondu';
-            }
-            $counts[$label] = ($counts[$label] ?? 0) + 1;
-            $groups[$label][] = $i;
-          }
+        $value = $getValue($row);
+        if ($value === $this->filteredOut()) {
+          continue;
         }
-        else {
-          $value = $getValue($row);
-          $label = $value ? 'Oui' : 'Non';
-          if ($value === NULL || $value === '') {
-            $label = 'Non répondu';
-          }
+        // Composite cards with no usable value are filtered out, not counted
+        // as "non répondu" (mirrors the viewer JS).
+        if ($is_composite && $value === NULL) {
+          continue;
+        }
+        $row_index = $row['_i'] ?? $i;
+        $values = is_array($value)
+          ? array_values(array_unique(array_map('strval', $value)))
+          : [$value];
+        foreach ($values as $v) {
+          $label = $this->booleanLabel($v);
           $counts[$label] = ($counts[$label] ?? 0) + 1;
-          $groups[$label][] = $i;
+          $groups[$label][] = $row_index;
         }
       }
       return ['rep' => $counts, 'groups' => $groups];
@@ -655,9 +621,15 @@ class ReportDataService {
     $who = [];
     foreach ($rows as $i => $row) {
       $value = $getValue($row);
+      if ($value === $this->filteredOut()) {
+        continue;
+      }
+      if ($is_composite && $value === NULL) {
+        continue;
+      }
       if (!empty($value)) {
         $sum += is_numeric($value) ? (int) $value : 1;
-        $who[] = $i;
+        $who[] = $row['_i'] ?? $i;
       }
     }
     if ($agg === 'pct') {

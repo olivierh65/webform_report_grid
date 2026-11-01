@@ -337,4 +337,127 @@ class ReportDataServiceTest extends UnitTestCase {
     $this->assertSame(['email' => 'julien@example.com'], $result[0]['contacts']);
   }
 
+  /**
+   * Composite union breakdowns must deduplicate values per submission.
+   */
+  public function testAggregateCompositeUnionDeduplicatesPerRow(): void {
+    $field = ['kind' => 'b', 'options' => []];
+    $card = [
+      'field' => 'source_a',
+      'source_fields' => ['source_a', 'source_b'],
+      'mode' => 'union',
+      'value_filter' => NULL,
+      'value_filters' => [
+        'source_a' => ['1'],
+        'source_b' => ['1'],
+      ],
+      'agg' => 'rep',
+    ];
+    $rows = [
+      ['_i' => 0, 'f' => ['source_a' => 1, 'source_b' => 1]],
+      ['_i' => 1, 'f' => ['source_a' => 1, 'source_b' => 0]],
+      ['_i' => 2, 'f' => ['source_a' => 0, 'source_b' => 0]],
+    ];
+
+    $result = $this->dataService->aggregate($card, $field, $rows);
+
+    // Both sources checked in row 0 must count as one "Oui", not two.
+    $this->assertSame(2, $result['rep']['Oui'] ?? 0);
+    $this->assertSame([0, 1], $result['groups']['Oui'] ?? []);
+  }
+
+  /**
+   * Detail-mode sections and totals are exported with unique names.
+   */
+  public function testExportDetailCompositeRows(): void {
+    $fields = [
+      'source_a' => ['kind' => 'b', 'label' => 'Source A', 'group' => 'Group', 'options' => [], 'contact' => FALSE],
+      'source_b' => ['kind' => 'b', 'label' => 'Source B', 'group' => 'Group', 'options' => [], 'contact' => FALSE],
+    ];
+
+    $rows = [
+      ['_i' => 0, 'n' => 'Alice', 'full' => 'Alice A', 'contacts' => [], 'f' => ['source_a' => 1, 'source_b' => 1]],
+      ['_i' => 1, 'n' => 'Bob', 'full' => 'Bob B', 'contacts' => [], 'f' => ['source_a' => 1, 'source_b' => 0]],
+      ['_i' => 2, 'n' => 'Carol', 'full' => 'Carol C', 'contacts' => [], 'f' => ['source_a' => 0, 'source_b' => 1]],
+    ];
+
+    $card = [
+      'field' => 'source_a',
+      'source_fields' => ['source_a', 'source_b'],
+      'mode' => 'union',
+      'value_filter' => NULL,
+      'value_filters' => [
+        'source_a' => ['1'],
+        'source_b' => ['1'],
+      ],
+      'agg' => 'rep',
+      'display_mode' => 'detail',
+      'label' => 'My card',
+      'group_label' => NULL,
+      'section_labels' => NULL,
+      'source_labels' => NULL,
+      'summary_label' => NULL,
+    ];
+
+    $service = new ReportExportService($this->dataService, $this->discovery);
+    $method = new \ReflectionMethod($service, 'appendCardRows');
+    $method->setAccessible(TRUE);
+    $name = fn(int $i): string => $rows[$i]['full'];
+
+    $summary = [];
+    $section_a = $card;
+    $section_a['field'] = 'source_a';
+    $section_a['source_fields'] = ['source_a'];
+    $section_a['value_filter'] = ['1'];
+    unset($section_a['value_filters']);
+    $method->invokeArgs($service, [&$summary, $section_a, $fields['source_a'], $rows, $name, 'Source A', NULL, 'Group']);
+
+    $section_b = $section_a;
+    $section_b['field'] = 'source_b';
+    $section_b['source_fields'] = ['source_b'];
+    $method->invokeArgs($service, [&$summary, $section_b, $fields['source_b'], $rows, $name, 'Source B', NULL, 'Group']);
+
+    $method->invokeArgs($service, [&$summary, $card, $fields['source_a'], $rows, $name, 'Total (Union)', NULL, 'Group']);
+
+    $by_label = [];
+    foreach ($summary as $line) {
+      $by_label[$line[1]] = $line;
+    }
+
+    $this->assertSame(
+      ['Group', 'Source A : Oui', 'Breakdown', 2, 'Alice A, Bob B'],
+      $by_label['Source A : Oui'],
+    );
+    $this->assertSame(
+      ['Group', 'Source B : Oui', 'Breakdown', 2, 'Alice A, Carol C'],
+      $by_label['Source B : Oui'],
+    );
+    $this->assertSame(
+      ['Group', 'Total (Union) : Oui', 'Breakdown', 3, 'Alice A, Bob B, Carol C'],
+      $by_label['Total (Union) : Oui'],
+    );
+  }
+
+  /**
+   * Untitled cards in a folder use "Folder — field label".
+   */
+  public function testCardLabelUsesFolderForUntitledCards(): void {
+    $service = new ReportExportService($this->dataService, $this->discovery);
+    $method = new \ReflectionMethod($service, 'cardLabel');
+    $method->setAccessible(TRUE);
+
+    $this->assertSame('Jeudi — Faire les courses', $method->invoke(
+      $service,
+      ['label' => ''],
+      ['label' => 'Faire les courses'],
+      'Jeudi',
+    ));
+    $this->assertSame('Bénévoles jeudi et vendredi', $method->invoke(
+      $service,
+      ['label' => 'Bénévoles jeudi et vendredi'],
+      ['label' => 'Faire les courses'],
+      'Synthèse',
+    ));
+  }
+
 }
